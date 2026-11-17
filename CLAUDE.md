@@ -65,8 +65,8 @@ The repository is shared; each user's personal files stay on their machine (git-
 | serpapi.py | SerpApi client; errors never echo the key |
 | urls.py | Canonical URLs and the stable lead identity per platform (the basis of "seen before") |
 | store.py | SQLite memory: results, searches (counter), leads (Status/Note), page_checks, identity_aliases, query_outcomes |
-| collector.py | One run: import Status/Note, search breadth-first, record outcomes, check pages, publish |
-| verify.py | Job page check: Comeet `POSITION_DATA`, Greenhouse `job__location` / embedded copy, schema.org JobPosting |
+| collector.py | One run: import Status/Note, search breadth-first, follow Google redirect links, record outcomes, check pages, publish |
+| verify.py | Job page check: Comeet `POSITION_DATA`, Greenhouse `job__location` / embedded copy, schema.org JobPosting; Google redirect links → page address |
 | filters.py | Hide rules (excluded titles, careers pages, closed, abroad) and duplicate detection |
 | workbook.py | The Excel workbook; text is never written as a formula; atomic save |
 | query_report.py, reports.py | Sweep report; preview HTML/CSV |
@@ -76,8 +76,8 @@ The repository is shared; each user's personal files stay on their machine (git-
 - Python 3.14 with uv. Dependencies: stdlib, openpyxl, pyyaml. Ask before adding any.
 - Out of scope: applying or messaging, CV rewriting, LLM ranking, web UI, scheduler,
   platform (ATS) APIs.
-- Tests must never reach the network: `verify.urlopen` is blocked for the whole suite;
-  pass fake `fetch` functions and fake clients. Add tests only where a bug would lose,
+- Tests must never reach the network: `verify.urlopen` and `verify.open_no_redirect` are
+  blocked for the whole suite; pass fake `fetch`/`resolve` functions and fake clients. Add tests only where a bug would lose,
   repeat or wrongly hide leads, or spend credits: dedupe ("seen before"), hide rules, page
   parsers, the search counter, Status/Note preservation.
 - Keep README.md in step with commands, columns and settings.

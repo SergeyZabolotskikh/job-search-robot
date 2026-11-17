@@ -19,7 +19,7 @@ from .query_report import platform_name, write_query_report
 from .reports import write_preview
 from .serpapi import SerpApiClient
 from .store import ResultStore
-from .verify import fetch_page
+from .verify import fetch_page, resolve_redirect
 from .workbook import ensure_writable, read_notes
 
 DEFAULT_HISTORY = ROOT / "data" / "history.sqlite3"
@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--freshness", choices=list(FRESHNESS),
                          help="Override google.freshness ('any' = no date filter; sweep default: any)")
         sub.add_argument("--env-file", type=Path, default=LOCAL_ENV, help="Local values file (default local.env.yaml)")
-        sub.set_defaults(fetch=fetch_page)  # job page checks; tests replace it
+        sub.set_defaults(fetch=fetch_page, resolve=resolve_redirect)  # page checks, Google redirects; tests replace them
         if command == "refresh":
             sub.add_argument("--recheck", action="store_true",
                              help="Open every job page again (finds jobs closed since the last check)")
@@ -173,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         summary = run_search(planned, settings, client, history=history_path, workbook=workbook,
                              pages=pages, budget=len(planned) * pages if args.command == "sweep" else budget,
-                             tbs=FRESHNESS[freshness], fetch=args.fetch)
+                             tbs=FRESHNESS[freshness], fetch=args.fetch, resolve=args.resolve)
         print(f'\n{summary["new_results"]} new results this run, {summary.get("new_shown", 0)} of them shown '
               f'in the workbook. Searches used this month: {summary["searches_this_month"]} of '
               f'{settings.monthly_limit}. Status: {summary["status"]}.')

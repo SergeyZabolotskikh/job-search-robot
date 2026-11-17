@@ -1,6 +1,7 @@
 """Offline behavioral tests ported from the prototype: no API key or live requests are used."""
 import contextlib
 import csv
+import http.client
 import io
 import json
 import os
@@ -29,12 +30,15 @@ app = types.SimpleNamespace(**{name: getattr(module, name)
 def setUpModule():
     """No test may touch the network: job page checks are replaced with fakes."""
     global _NO_NETWORK
-    _NO_NETWORK = patch.object(verify, "urlopen", side_effect=AssertionError("network access in tests"))
-    _NO_NETWORK.start()
+    _NO_NETWORK = [patch.object(verify, name, side_effect=AssertionError("network access in tests"))
+                   for name in ("urlopen", "open_no_redirect")]
+    for blocker in _NO_NETWORK:
+        blocker.start()
 
 
 def tearDownModule():
-    _NO_NETWORK.stop()
+    for blocker in _NO_NETWORK:
+        blocker.stop()
 
 
 def item(job_id="100", title=None, **extra):
@@ -300,11 +304,11 @@ class SearchFlowTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_search(self, responses, pages=2, budget=4):
+    def run_search(self, responses, pages=2, budget=4, resolve=None):
         client = FakeClient(responses)
         with contextlib.redirect_stdout(io.StringIO()):
             result = app.run_search(self.queries, self.settings, client, history=self.history,
-                                    workbook=self.workbook, pages=pages, budget=budget)
+                                    workbook=self.workbook, pages=pages, budget=budget, resolve=resolve)
         return result, client
 
     def read_sheet(self):
@@ -386,6 +390,45 @@ class SearchFlowTests(unittest.TestCase):
         cells = load_workbook(self.workbook)["Leads"][2]
         self.assertTrue(all(c.data_type != "f" for c in cells))
         self.assertEqual(self.read_sheet()[0]["Title"], "=1+1")
+
+    def test_google_redirect_links_are_followed_to_the_job_page(self):
+        # SerpApi may return google.com/goto?url=... links; the real address only shows in displayed_link.
+        goto = "https://www.google.com/goto?url=CAESjob"
+        lost = "https://www.google.com/goto?url=CAESlost"
+        elsewhere = "https://www.google.com/goto?url=CAESother"
+        results = [
+            {"title": "Software Architect 555", "link": goto, "snippet": "Synthetic.",
+             "displayed_link": "https://job-boards.greenhouse.io › fixture › jobs"},
+            {"title": "Software Architect 556", "link": lost, "snippet": "Synthetic.",
+             "displayed_link": "https://job-boards.greenhouse.io › fixture"},
+            {"title": "Elsewhere", "link": elsewhere, "snippet": "Synthetic.",
+             "displayed_link": "https://www.linkedin.com › jobs › view"},
+        ]
+        asked = []
+
+        def resolve(url):
+            asked.append(url)
+            return "https://job-boards.greenhouse.io/fixture/jobs/555" if url == goto else None
+
+        summary, _ = self.run_search([page(results), page([])], resolve=resolve)
+        self.assertEqual(asked, [goto, lost])  # only links Google shows on the platform are followed
+        self.assertEqual(summary["unique_results"], 1)
+        self.assertTrue(self.read_sheet()[0]["Link"].endswith("/jobs/555"))
+        memory = app.ResultStore(self.history)
+        try:
+            examples = memory.latest_outcomes()[self.queries[0].key]["examples"]
+        finally:
+            memory.close()
+        self.assertIn("not on platform: https://job-boards.greenhouse.io › fixture | https://www.linkedin.com", examples)
+
+    def test_resolve_redirect_reads_the_location_header(self):
+        headers = http.client.HTTPMessage()
+        headers["Location"] = "https://www.comeet.com/jobs/acme/AA.001/team-lead/BB.002"
+        redirect = HTTPError("https://www.google.com/goto?url=x", 302, "Found", headers, None)
+        with patch.object(verify, "open_no_redirect", side_effect=redirect):
+            self.assertEqual(verify.resolve_redirect("https://www.google.com/goto?url=x"), headers["Location"])
+        with patch.object(verify, "open_no_redirect", side_effect=URLError("offline")):
+            self.assertIsNone(verify.resolve_redirect("https://www.google.com/goto?url=x"))
 
     def test_out_of_scope_and_malformed_results_do_not_enter_history(self):
         summary, _ = self.run_search([page([item(), {"link": "https://evil.example/123", "title": "wrong"}, {"title": "no URL"}, "bad"]), page([])])
@@ -646,7 +689,7 @@ class SweepTests(unittest.TestCase):
         verdicts = [dict(zip(rows[0], r))["Verdict"] for r in rows[1:]]
         self.assertEqual(len(verdicts), len(all_queries))
         self.assertNotIn("not searched yet", verdicts)
-        self.assertIn("site: ignored (all off-platform)", verdicts)   # comeet queries got greenhouse links
+        self.assertIn("no platform links (see Examples)", verdicts)   # comeet queries got greenhouse links
 
 
 if __name__ == "__main__":

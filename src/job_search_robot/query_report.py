@@ -24,7 +24,7 @@ QUERY_COLUMNS = [  # (header, width)
 ]
 FRESHNESS_NAME = {code or "any": name for name, code in FRESHNESS.items()}
 SUMMARY_COLUMNS = ["Queries", "Searched", "Returned", "On platform", "Off platform", "New leads",
-                   "Jobs", "Career pages", "Mentions Israel", "Site ignored", "No results"]
+                   "Jobs", "Career pages", "Mentions Israel", "No platform links", "No results"]
 
 
 def verdict(outcome: dict | None) -> str:
@@ -33,8 +33,8 @@ def verdict(outcome: dict | None) -> str:
     if outcome["returned"] == 0:
         return "no results"
     if outcome["on_platform"] == 0:
-        return "site: ignored (all off-platform)"
-    text = "mixed (some off-platform)" if outcome["off_platform"] else "ok"
+        return "no platform links (see Examples)"
+    text = "mixed (some not on the platform)" if outcome["off_platform"] else "ok"
     return text + (", more pages" if outcome["more_pages"] else "")
 
 
@@ -82,7 +82,7 @@ def write_query_report(output: Path, queries: list[SearchQuery], outcomes: dict[
                                     ("Off platform", "off_platform"), ("New leads", "new_leads"), ("Jobs", "jobs"),
                                     ("Career pages", "career_pages"), ("Mentions Israel", "israel")):
                     bucket[name] += o[field]
-                bucket["Site ignored"] += o["returned"] > 0 and o["on_platform"] == 0
+                bucket["No platform links"] += o["returned"] > 0 and o["on_platform"] == 0
                 bucket["No results"] += o["returned"] == 0
     sheet.auto_filter.ref = sheet.dimensions
     for kind, title in (("platform", "By platform"), ("family", "By family")):
@@ -94,7 +94,8 @@ def write_query_report(output: Path, queries: list[SearchQuery], outcomes: dict[
     notes = book.create_sheet("How to read")
     for line in (
         "One row per query; values come from its latest page-1 search. '*' in 'Searched at' = this sweep.",
-        "On platform = results on the query's hiring platform (kept). Off platform = Google ignored site: (dropped).",
+        "On platform = results on the query's hiring platform (kept). Off platform = links elsewhere (dropped);",
+        "Examples lists the first of them after 'not on platform:'. Google redirect links are followed first.",
         "New leads = first time this tool saw the result. Mentions Israel = title/snippet names Israel or an Israeli city.",
         "Google link = the same query in Google with the same country/language (and date filter). Results differ per",
         "person and location, so expect similar, not identical results. Write what you see in 'Your check'.",

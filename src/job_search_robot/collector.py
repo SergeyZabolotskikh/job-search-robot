@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from collections import Counter, deque
@@ -15,10 +16,42 @@ from .filters import split_visible
 from .queries import SearchQuery
 from .serpapi import next_offset
 from .store import ResultStore
-from .verify import check_page, fetch_page
+from .urls import in_site
+from .verify import check_page, fetch_page, resolve_redirect
+from .workbook import ensure_writable, mentions_israel, read_notes, write_workbook
 
 PAGE_PAUSE_SECONDS = 1.0
-from .workbook import ensure_writable, mentions_israel, read_notes, write_workbook
+GOOGLE_REDIRECT = re.compile(r"^https?://(www\.)?google\.[a-z.]+/(goto|url)\?", re.I)
+
+
+def shown_address(item: dict) -> str:
+    """Google's displayed link ("https://www.comeet.com › jobs › acme") as a URL-like string."""
+    shown = item.get("displayed_link")
+    if not isinstance(shown, str) or not shown.strip():
+        return ""
+    shown = re.sub(r"\s*›\s*", "/", shown.strip())
+    return shown if "://" in shown else "https://" + shown
+
+
+def unwrap_links(results: list, query: SearchQuery, resolve) -> list:
+    """SerpApi often returns a Google redirect (google.com/goto?url=...) instead of the page address.
+    For results that Google shows on the query's platform, ask Google once where the link leads
+    (plain HTTP, no SerpApi credits). Others stay as they are and are dropped as off-platform."""
+    if resolve is None:
+        return results
+    unwrapped, asked = [], 0
+    for item in results:
+        link = item.get("link") if isinstance(item, dict) else None
+        if (isinstance(link, str) and GOOGLE_REDIRECT.match(link)
+                and any(in_site(shown_address(item), site) for site in query.sites)):
+            if resolve is resolve_redirect and asked:
+                time.sleep(PAGE_PAUSE_SECONDS)  # be polite to Google
+            asked += 1
+            real = resolve(link)
+            if real and not GOOGLE_REDIRECT.match(real):
+                item = {**item, "link": real}
+        unwrapped.append(item)
+    return unwrapped
 
 
 def describe(payload: dict, results: list, ingested: dict, settings: Settings, more_pages: bool) -> dict:
@@ -26,6 +59,9 @@ def describe(payload: dict, results: list, ingested: dict, settings: Settings, m
     kept = ingested["kept"]
     total = payload.get("search_information", {}).get("total_results") if isinstance(
         payload.get("search_information"), dict) else None
+    examples = " | ".join(k["title"] for k in kept[:3])
+    if ingested.get("dropped_examples"):
+        examples += ("; " if examples else "") + "not on platform: " + " | ".join(ingested["dropped_examples"][:3])
     return {"total_results": total if isinstance(total, int) else None,
             "returned": len(results), "on_platform": len(kept), "off_platform": ingested["dropped"],
             "new_leads": sum(k["new"] for k in kept),
@@ -33,7 +69,7 @@ def describe(payload: dict, results: list, ingested: dict, settings: Settings, m
             "career_pages": sum(k["result_type"] == "career_page" for k in kept),
             "israel": sum(mentions_israel(f'{k["title"]} {k["snippet"]}', settings) for k in kept),
             "more_pages": more_pages,
-            "examples": " | ".join(k["title"] for k in kept[:3])}
+            "examples": examples}
 
 
 def check_pages(store: ResultStore, settings: Settings, fetch, limit: int = 80) -> dict:
@@ -67,7 +103,8 @@ def publish(store: ResultStore, settings: Settings, workbook: Path, summary: dic
 
 
 def run_search(queries: list[SearchQuery], settings: Settings, client, *, history: Path, workbook: Path,
-               pages: int, budget: int, tbs: str = "", fetch=None) -> dict:
+               pages: int, budget: int, tbs: str = "", fetch=None, resolve=None) -> dict:
+    """`fetch` opens job pages, `resolve` follows Google redirect links; None = skip (tests pass fakes)."""
     ensure_writable(workbook)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
     store = ResultStore(history)
@@ -98,7 +135,7 @@ def run_search(queries: list[SearchQuery], settings: Settings, client, *, histor
                     break
                 continue
             store.record_search(run_id, query, start, "ok")
-            results = payload.get("organic_results", [])
+            results = unwrap_links(payload.get("organic_results", []), query, resolve)
             ingested = store.ingest(run_id, query, results)
             state["results"] += len(ingested["kept"])
             state["pages_fetched"] += 1

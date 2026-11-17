@@ -41,9 +41,12 @@ Measured with live searches:
   demand exceeds the limit, everything is revisited proportionally less often; `preview` prints
   the demand.
 - A "past week" date filter keeps results fresh; one page per query.
-- Google still ignores `site:` for some short single-platform queries, not deterministically
-  (39 of 50 in one sweep). Results that are not on the platform are dropped. `sweep` measures
-  this per query, and every search's outcome is stored (`query_outcomes`).
+- SerpApi often returns Google redirect links (`google.com/goto?url=...`); the page address
+  shows only in `displayed_link`. Many early "Google ignored `site:`" verdicts were probably
+  these links (not checked: dropped links weren't saved then). When `displayed_link` is on the query's platform, the tool reads the
+  redirect's `Location` with one plain HTTP request (no credits). Results not on the platform
+  are dropped. `sweep` measures this per query and lists the first dropped addresses, and
+  every search's outcome is stored (`query_outcomes`).
 
 ## Workbook
 

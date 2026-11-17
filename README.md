@@ -171,13 +171,17 @@ All of these are private and git-ignored.
   `results/`, any `.pdf`/`.doc`/`.docx` file and the `sources/cvs/` folder, and the
   working notes `docs/PROGRESS.md` and `docs/tasks/`.
 - The tool doesn't need or read your CV.
-- The tool sends only search queries (to SerpApi) and plain page requests to the public
-  job pages it found (one per second per site, at most 80 per run).
+- The tool sends only search queries (to SerpApi), one request per Google redirect link
+  of a platform result (to Google, to learn the page address), and plain page requests to
+  the public job pages it found (one per second per site, at most 80 per run).
 
 ## Known limitations
 
-- Google sometimes ignores `site:` and returns general web pages instead. The tool drops
-  those results, so such a search finds nothing. `sweep` shows which queries suffer.
+- SerpApi often returns Google redirect links (`google.com/goto?url=...`) instead of page
+  addresses. For results that Google shows on the searched platform, the tool asks Google
+  where the link leads (one free request each, no searches used).
+- Results on other sites are dropped. The `sweep` report shows, per query, how many were
+  dropped and the first of them under Examples.
 - Google picks up new postings with a delay, and the search sees only what Google has indexed.
 - Comeet pages state only when a job was last updated, not when it was posted.
 - Ashby marks many Israeli jobs as remote-eligible. Read "remote" there as "remote allowed".

@@ -6,6 +6,8 @@ details differently:
 - Greenhouse: the `job__location` element (or `job_post_location`) and `published_at`; closed = 404
   or board redirect. Links that move to the company's own site are read from Greenhouse's embedded copy.
 - Ashby, Lever, Workable and most company sites: a schema.org JobPosting block (JSON-LD).
+
+Also resolves Google result redirect links (google.com/goto?url=...) to the page address.
 """
 from __future__ import annotations
 
@@ -14,8 +16,8 @@ import json
 import re
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from .common import VERSION
 from .config import Settings
@@ -47,6 +49,27 @@ def fetch_page(url: str, timeout: int = 15) -> tuple[int, str, str]:
         return exc.code, url, ""
     except (URLError, TimeoutError, OSError, ValueError):
         return 0, url, ""
+
+
+class _ReportRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # don't follow: the redirect surfaces as an HTTPError carrying its Location
+
+
+open_no_redirect = build_opener(_ReportRedirect).open  # tests replace it, like urlopen
+
+
+def resolve_redirect(url: str, timeout: int = 15) -> str | None:
+    """Where a Google result link (google.com/goto?url=... or /url?...) leads: its Location header.
+    One plain HTTP request to Google (no SerpApi credits); None if there is no redirect."""
+    try:
+        with open_no_redirect(Request(url, headers={"User-Agent": USER_AGENT}), timeout=timeout):
+            return None
+    except HTTPError as exc:
+        location = exc.headers.get("Location") if 300 <= exc.code < 400 and exc.headers else None
+        return urljoin(url, location) if location else None
+    except (URLError, TimeoutError, OSError, ValueError):
+        return None
 
 
 def check_page(url: str, platform: str, settings: Settings, fetch=fetch_page) -> PageCheck:

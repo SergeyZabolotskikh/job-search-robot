@@ -167,9 +167,11 @@ class ResultStore:
 
     # ----------------------------------------------------------------- results
     def ingest(self, run_id: str, query: SearchQuery, items: list) -> dict:
-        """Store on-platform results. Returns {"kept": [...], "dropped": n}; each kept item has
-        identity, title, snippet, result_type and new (first time this tool sees it)."""
-        kept, dropped = [], 0
+        """Store on-platform results. Returns {"kept": [...], "dropped": n, "dropped_examples": [...]};
+        each kept item has identity, title, snippet, result_type and new (first time this tool sees it).
+        Dropped examples are the first addresses not on the platform (Google's displayed link for an
+        unresolved Google redirect), so the sweep report shows what was dropped."""
+        kept, dropped, dropped_examples = [], 0, []
         with self.connection:
             for item in items:
                 if not isinstance(item, dict) or not isinstance(item.get("link"), str):
@@ -178,6 +180,9 @@ class ResultStore:
                 result = canonical_result(url)
                 if result is None or not any(in_site(url, site) for site in query.sites):
                     dropped += 1
+                    shown = item.get("displayed_link") if "://www.google." in url[:20] else url
+                    if len(dropped_examples) < 3:
+                        dropped_examples.append(str(shown or url)[:90])
                     continue
                 is_new = self.connection.execute("SELECT 1 FROM results WHERE identity=?",
                                                  (result["identity"],)).fetchone() is None
@@ -195,7 +200,7 @@ class ResultStore:
                                         (run_id, result["identity"], query.text, query.family_id, query.track))
                 kept.append({"identity": result["identity"], "title": title, "snippet": snippet,
                              "result_type": result["result_type"], "new": is_new})
-        return {"kept": kept, "dropped": dropped}
+        return {"kept": kept, "dropped": dropped, "dropped_examples": dropped_examples}
 
     def rows(self, run_id: str | None = None) -> list[dict]:
         """Leads found in one run, or every lead ever seen (run_id=None), newest first."""
