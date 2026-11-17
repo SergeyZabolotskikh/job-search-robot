@@ -44,7 +44,9 @@ Measured with live searches:
 - SerpApi often returns Google redirect links (`google.com/goto?url=...`); the page address
   shows only in `displayed_link`. Many early "Google ignored `site:`" verdicts were probably
   these links (not checked: dropped links weren't saved then). When `displayed_link` is on the query's platform, the tool reads the
-  redirect's `Location` with one plain HTTP request (no credits). Results not on the platform
+  redirect's `Location` with one plain HTTP request (no credits). Google once refused results
+  7-10 of each fresh search but followed the same links minutes later, so failed links are tried
+  once more after all searches, at least 60 s after their own. Results not on the platform
   are dropped. `sweep` measures this per query and lists the first dropped addresses, and
   every search's outcome is stored (`query_outcomes`).
 

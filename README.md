@@ -179,7 +179,9 @@ All of these are private and git-ignored.
 
 - SerpApi often returns Google redirect links (`google.com/goto?url=...`) instead of page
   addresses. For results that Google shows on the searched platform, the tool asks Google
-  where the link leads (one free request each, no searches used).
+  where the link leads (one free request each, no searches used). Google sometimes refuses
+  links right after a search, so those are tried once more after all searches (at least a
+  minute later); the run prints how many, and the `sweep` report shows why any still failed.
 - Results on other sites are dropped. The `sweep` report shows, per query, how many were
   dropped and the first of them under Examples.
 - Google picks up new postings with a delay, and the search sees only what Google has indexed.

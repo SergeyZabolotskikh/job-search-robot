@@ -202,6 +202,11 @@ def print_workbook_summary(summary: dict, workbook: Path) -> None:
         print(f'Saved {summary["notes_imported"]} Status/Note change(s) from the workbook.')
     if summary.get("identities_migrated"):
         print(f'Merged {summary["identities_migrated"]} lead(s) recorded under old link rules.')
+    links = summary.get("google_links") or {}
+    if links.get("retried") or links.get("failed"):
+        failed = "; ".join(f"{why}: {n}" for why, n in sorted(links.get("failed", {}).items()))
+        print(f'Google redirect links: {links.get("retried", 0)} tried again, {links.get("followed_on_retry", 0)} '
+              f'followed then' + (f'; not followed ({failed}).' if failed else '.'))
     if summary.get("page_checks"):
         print("Job pages checked: " + ", ".join(f"{n} {k}" for k, n in sorted(summary["page_checks"].items())) + ".")
     hidden = summary.get("hidden") or {}

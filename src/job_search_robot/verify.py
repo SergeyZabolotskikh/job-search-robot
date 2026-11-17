@@ -59,17 +59,17 @@ class _ReportRedirect(HTTPRedirectHandler):
 open_no_redirect = build_opener(_ReportRedirect).open  # tests replace it, like urlopen
 
 
-def resolve_redirect(url: str, timeout: int = 15) -> str | None:
-    """Where a Google result link (google.com/goto?url=... or /url?...) leads: its Location header.
-    One plain HTTP request to Google (no SerpApi credits); None if there is no redirect."""
+def resolve_redirect(url: str, timeout: int = 15) -> tuple[str | None, str]:
+    """Where a Google result link (google.com/goto?url=... or /url?...) leads: (its Location header, "")
+    or (None, why not). One plain HTTP request to Google (no SerpApi credits)."""
     try:
-        with open_no_redirect(Request(url, headers={"User-Agent": USER_AGENT}), timeout=timeout):
-            return None
+        with open_no_redirect(Request(url, headers={"User-Agent": USER_AGENT}), timeout=timeout) as response:
+            return None, f"HTTP {getattr(response, 'status', '?')}, no redirect"
     except HTTPError as exc:
         location = exc.headers.get("Location") if 300 <= exc.code < 400 and exc.headers else None
-        return urljoin(url, location) if location else None
+        return (urljoin(url, location), "") if location else (None, f"HTTP {exc.code}")
     except (URLError, TimeoutError, OSError, ValueError):
-        return None
+        return None, "network error"
 
 
 def check_page(url: str, platform: str, settings: Settings, fetch=fetch_page) -> PageCheck:

@@ -408,10 +408,10 @@ class SearchFlowTests(unittest.TestCase):
 
         def resolve(url):
             asked.append(url)
-            return "https://job-boards.greenhouse.io/fixture/jobs/555" if url == goto else None
+            return ("https://job-boards.greenhouse.io/fixture/jobs/555", "") if url == goto else (None, "HTTP 400")
 
         summary, _ = self.run_search([page(results), page([])], resolve=resolve)
-        self.assertEqual(asked, [goto, lost])  # only links Google shows on the platform are followed
+        self.assertEqual(asked, [goto, lost, lost])  # only platform links; a failed one is tried once more
         self.assertEqual(summary["unique_results"], 1)
         self.assertTrue(self.read_sheet()[0]["Link"].endswith("/jobs/555"))
         memory = app.ResultStore(self.history)
@@ -419,16 +419,42 @@ class SearchFlowTests(unittest.TestCase):
             examples = memory.latest_outcomes()[self.queries[0].key]["examples"]
         finally:
             memory.close()
-        self.assertIn("not on platform: https://job-boards.greenhouse.io › fixture | https://www.linkedin.com", examples)
+        self.assertIn("not on platform: https://job-boards.greenhouse.io › fixture [HTTP 400] | https://www.linkedin.com", examples)
+        self.assertEqual(summary["google_links"], {"retried": 1, "followed_on_retry": 0, "failed": {"HTTP 400": 1}})
+
+    def test_google_links_refused_at_first_are_tried_again_after_the_searches(self):
+        # Google refused results 7-10 of a fresh search, then followed the same links minutes later.
+        late = "https://www.google.com/goto?url=CAESlate"
+        results = [{"title": "Software Architect 557", "link": late, "snippet": "Synthetic.",
+                    "displayed_link": "https://job-boards.greenhouse.io › fixture › jobs"}]
+        tries = []
+
+        def resolve(url):
+            tries.append(url)
+            return (None, "HTTP 400") if len(tries) == 1 else ("https://job-boards.greenhouse.io/fixture/jobs/557", "")
+
+        summary, client = self.run_search([page(results), page([])], resolve=resolve)
+        self.assertEqual(tries, [late, late])
+        self.assertEqual(len(client.calls), 2)  # the second try costs no search
+        self.assertEqual(summary["unique_results"], 1)
+        self.assertEqual(summary["google_links"], {"retried": 1, "followed_on_retry": 1, "failed": {}})
+        memory = app.ResultStore(self.history)
+        try:
+            self.assertEqual(memory.latest_outcomes()[self.queries[0].key]["on_platform"], 1)
+        finally:
+            memory.close()
 
     def test_resolve_redirect_reads_the_location_header(self):
         headers = http.client.HTTPMessage()
         headers["Location"] = "https://www.comeet.com/jobs/acme/AA.001/team-lead/BB.002"
         redirect = HTTPError("https://www.google.com/goto?url=x", 302, "Found", headers, None)
         with patch.object(verify, "open_no_redirect", side_effect=redirect):
-            self.assertEqual(verify.resolve_redirect("https://www.google.com/goto?url=x"), headers["Location"])
+            self.assertEqual(verify.resolve_redirect("https://www.google.com/goto?url=x"), (headers["Location"], ""))
+        refused = HTTPError("https://www.google.com/goto?url=x", 400, "Bad Request", http.client.HTTPMessage(), None)
+        with patch.object(verify, "open_no_redirect", side_effect=refused):
+            self.assertEqual(verify.resolve_redirect("https://www.google.com/goto?url=x"), (None, "HTTP 400"))
         with patch.object(verify, "open_no_redirect", side_effect=URLError("offline")):
-            self.assertIsNone(verify.resolve_redirect("https://www.google.com/goto?url=x"))
+            self.assertEqual(verify.resolve_redirect("https://www.google.com/goto?url=x"), (None, "network error"))
 
     def test_out_of_scope_and_malformed_results_do_not_enter_history(self):
         summary, _ = self.run_search([page([item(), {"link": "https://evil.example/123", "title": "wrong"}, {"title": "no URL"}, "bad"]), page([])])

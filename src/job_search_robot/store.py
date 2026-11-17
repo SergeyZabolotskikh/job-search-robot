@@ -182,7 +182,8 @@ class ResultStore:
                     dropped += 1
                     shown = item.get("displayed_link") if "://www.google." in url[:20] else url
                     if len(dropped_examples) < 3:
-                        dropped_examples.append(str(shown or url)[:90])
+                        why = f' [{item["google_link_failed"]}]' if item.get("google_link_failed") else ""
+                        dropped_examples.append(str(shown or url)[:90] + why)
                     continue
                 is_new = self.connection.execute("SELECT 1 FROM results WHERE identity=?",
                                                  (result["identity"],)).fetchone() is None

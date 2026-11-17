@@ -21,6 +21,9 @@ from .verify import check_page, fetch_page, resolve_redirect
 from .workbook import ensure_writable, mentions_israel, read_notes, write_workbook
 
 PAGE_PAUSE_SECONDS = 1.0
+# Google refused some redirect links right after a search (results 7-10 of 10) but followed the same
+# links minutes later, so failed links are tried once more after the searches, this long after theirs.
+RETRY_AFTER_SECONDS = 60
 GOOGLE_REDIRECT = re.compile(r"^https?://(www\.)?google\.[a-z.]+/(goto|url)\?", re.I)
 
 
@@ -33,25 +36,36 @@ def shown_address(item: dict) -> str:
     return shown if "://" in shown else "https://" + shown
 
 
-def unwrap_links(results: list, query: SearchQuery, resolve) -> list:
+def unwrap_links(results: list, query: SearchQuery, resolve, retry: bool = False) -> list:
     """SerpApi often returns a Google redirect (google.com/goto?url=...) instead of the page address.
     For results that Google shows on the query's platform, ask Google once where the link leads
-    (plain HTTP, no SerpApi credits). Others stay as they are and are dropped as off-platform."""
+    (plain HTTP, no SerpApi credits). Others stay as they are and are dropped as off-platform.
+    A link Google didn't follow keeps the reason in "google_link_failed"; retry=True asks again for those."""
     if resolve is None:
         return results
     unwrapped, asked = [], 0
     for item in results:
         link = item.get("link") if isinstance(item, dict) else None
-        if (isinstance(link, str) and GOOGLE_REDIRECT.match(link)
-                and any(in_site(shown_address(item), site) for site in query.sites)):
+        if retry:
+            wanted = bool(isinstance(item, dict) and item.get("google_link_failed"))
+        else:
+            wanted = bool(isinstance(link, str) and GOOGLE_REDIRECT.match(link)
+                          and any(in_site(shown_address(item), site) for site in query.sites))
+        if wanted:
             if resolve is resolve_redirect and asked:
                 time.sleep(PAGE_PAUSE_SECONDS)  # be polite to Google
             asked += 1
-            real = resolve(link)
+            real, why = resolve(link)
             if real and not GOOGLE_REDIRECT.match(real):
-                item = {**item, "link": real}
+                item = {key: value for key, value in item.items() if key != "google_link_failed"} | {"link": real}
+            else:
+                item = {**item, "google_link_failed": why or "led back to Google"}
         unwrapped.append(item)
     return unwrapped
+
+
+def failed_links(results: list) -> list[str]:
+    return [item["google_link_failed"] for item in results if isinstance(item, dict) and item.get("google_link_failed")]
 
 
 def describe(payload: dict, results: list, ingested: dict, settings: Settings, more_pages: bool) -> dict:
@@ -115,6 +129,18 @@ def run_search(queries: list[SearchQuery], settings: Settings, client, *, histor
     # Breadth first: all queries get page one before any query gets page two.
     pending = deque((index, 0) for index in range(len(queries)))
     interrupted, fatal = False, False
+    retry = deque()  # searches with Google links that failed: (index, start, payload, results, more_pages, searched_at)
+    links = summary["google_links"] = {"retried": 0, "followed_on_retry": 0, "failed": {}}
+
+    def keep(found) -> None:
+        index, start, payload, results, more_pages, _ = found
+        query = queries[index]
+        for why in failed_links(results):
+            links["failed"][why] = links["failed"].get(why, 0) + 1
+        ingested = store.ingest(run_id, query, results)
+        summary["queries"][index]["results"] += len(ingested["kept"])
+        store.record_outcome(run_id, query, start, tbs or "any", describe(payload, results, ingested, settings, more_pages))
+
     try:
         summary["notes_imported"] = store.save_notes(read_notes(workbook))
         store.start_run(run_id)
@@ -136,12 +162,13 @@ def run_search(queries: list[SearchQuery], settings: Settings, client, *, histor
                 continue
             store.record_search(run_id, query, start, "ok")
             results = unwrap_links(payload.get("organic_results", []), query, resolve)
-            ingested = store.ingest(run_id, query, results)
-            state["results"] += len(ingested["kept"])
             state["pages_fetched"] += 1
             next_start = next_offset(payload, start) if results else None
-            store.record_outcome(run_id, query, start, tbs or "any",
-                                 describe(payload, results, ingested, settings, next_start is not None))
+            found = (index, start, payload, results, next_start is not None, time.monotonic())
+            if failed_links(results):
+                retry.append(found)  # stored after the searches, with a second try for its Google links
+            else:
+                keep(found)
             if next_start is None:
                 state["status"] = "no_more_pages_returned"
             elif state["pages_fetched"] >= pages:
@@ -149,9 +176,22 @@ def run_search(queries: list[SearchQuery], settings: Settings, client, *, histor
             else:
                 state["status"] = "pending_next_page"
                 pending.append((index, next_start))
+        while retry:
+            index, start, payload, results, more_pages, searched_at = retry[0]
+            if resolve is resolve_redirect:
+                time.sleep(max(PAGE_PAUSE_SECONDS, RETRY_AFTER_SECONDS - (time.monotonic() - searched_at)))
+            before = len(failed_links(results))
+            print(f"Trying {before} Google link(s) of query {index + 1} again", flush=True)
+            results = unwrap_links(results, queries[index], resolve, retry=True)
+            links["retried"] += before
+            links["followed_on_retry"] += before - len(failed_links(results))
+            retry.popleft()
+            keep((index, start, payload, results, more_pages, searched_at))
     except KeyboardInterrupt:
         interrupted = True
     finally:
+        while retry:  # interrupted or stopped: store what was found, without the second try
+            keep(retry.popleft())
         remaining_status = "interrupted" if interrupted else "stopped_after_provider_error" if fatal else "request_budget"
         for state in summary["queries"]:
             if state["status"] in ("not_started", "pending_next_page", "in_progress"):
