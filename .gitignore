@@ -1,0 +1,34 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# ---- Private: stays on each machine, never in git ----
+
+# Your settings. Start from sources/positions.example.toml and sources/search.example.toml.
+sources/positions.toml
+sources/search.toml
+
+# CVs and other personal documents
+sources/cvs/
+*.pdf
+*.doc
+*.docx
+
+# Tool memory and generated results (your leads, marks and search history)
+data/
+results/
+
+# Secrets (start from local.env.example.yaml)
+.env
+local.env.yaml
+
+# Working notes: task log and progress (format: docs/task-template.md)
+docs/PROGRESS.md
+docs/tasks/

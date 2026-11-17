@@ -1,0 +1,140 @@
+# EXAMPLE search settings. Copy it to search.toml (private, git-ignored) and edit the copy:
+#   Windows:      Copy-Item sources\search.example.toml sources\search.toml
+#   macOS/Linux:  cp sources/search.example.toml sources/search.toml
+# The tool reads search.toml on every run. Run `uv run job-search-robot preview` after editing.
+
+[budget]
+monthly_limit = 250      # SerpApi free plan: 250 searches/month
+per_run = 16             # ~15 runs/month (every 2 days) x 16 = 240
+pages_per_query = 1      # single-platform queries return few results; 1 page is enough
+max_query_words = 20     # longer queries make Google drop site: (measured: 14 words kept, 32 dropped)
+revisit_days = [2, 4, 8] # how often to search a query, by family priority 1, 2, 3 (days)
+per_hour = 50            # SerpApi free plan throughput: 50 searches per hour
+
+[google]
+country = "il"
+language = "en"
+freshness = "week"       # only pages Google indexed recently: "day", "week", "month" or "any"
+timeout_seconds = 30
+
+# Terms OR-ed into every query. Each word costs query length, and "Israel" already
+# matches every region, so keep this short. Cities here only catch pages that
+# don't say "Israel".
+[location]
+query_terms = ["Israel", "Tel Aviv"]
+
+# Regions do NOT change the query. They tag each lead from its location, title or snippet:
+# a city in an enabled region -> that region; in a disabled region -> "outside area".
+# Spelling variants help matching (Ra'anana / Raanana).
+[[region]]
+name = "Central"
+enabled = true
+cities = ["Tel Aviv", "Tel-Aviv", "Ramat Gan", "Givatayim", "Herzliya", "Herzlia", "Petah Tikva",
+          "Petach Tikva", "Petah Tiqva", "Bnei Brak", "Holon", "Bat Yam", "Or Yehuda", "Airport City",
+          "Yehud", "Rishon LeZion", "Rishon Lezion"]
+
+[[region]]
+name = "Sharon"
+enabled = true
+cities = ["Raanana", "Ra'anana", "Kfar Saba", "Hod Hasharon", "Netanya", "Rosh HaAyin", "Rosh Ha'ayin",
+          "Kfar Yona", "Even Yehuda"]
+
+[[region]]
+name = "North"
+enabled = true
+cities = ["Haifa", "Yokneam", "Yoqneam", "Caesarea", "Nazareth", "Migdal HaEmek", "Matam"]
+
+[[region]]
+name = "Jerusalem"
+enabled = false
+cities = ["Jerusalem", "Beit Shemesh", "Mevaseret"]
+
+[[region]]
+name = "South-central"
+enabled = false
+cities = ["Rehovot", "Ness Ziona", "Nes Ziona", "Modiin", "Modi'in", "Lod", "Ramla", "Kiryat Gat"]
+
+[[region]]
+name = "South"
+enabled = false
+cities = ["Beer Sheva", "Be'er Sheva", "Beersheba", "Ashdod", "Ashkelon"]
+
+# Hiring platforms. Each query searches ONE platform (Google ignores site: OR site:),
+# so more platforms = more queries. The disabled ones are untested.
+[[platform]]
+name = "Comeet"
+site = "comeet.com/jobs"
+enabled = true
+
+[[platform]]
+name = "Greenhouse"
+site = "greenhouse.io"
+enabled = true
+
+[[platform]]
+name = "Lever"
+site = "jobs.lever.co"
+enabled = true
+
+[[platform]]
+name = "Ashby"
+site = "jobs.ashbyhq.com"
+enabled = true
+
+[[platform]]
+name = "Workable"
+site = "apply.workable.com"
+enabled = true
+
+[[platform]]
+name = "SmartRecruiters"
+site = "jobs.smartrecruiters.com"
+enabled = false
+
+[[platform]]
+name = "Workday"
+site = "myworkdayjobs.com"
+enabled = false
+
+[[platform]]
+name = "BambooHR"
+site = "bamboohr.com/careers"
+enabled = false
+
+[[platform]]
+name = "Breezy"
+site = "breezy.hr"
+enabled = false
+
+[[platform]]
+name = "Recruitee"
+site = "recruitee.com"
+enabled = false
+
+[[platform]]
+name = "Teamtailor"
+site = "teamtailor.com"
+enabled = false
+
+[filters]
+# Phrases excluded from every query (-"phrase"). Keep it conservative: broad words
+# like "sales" or "support" also appear on relevant pages.
+exclude_terms = []
+
+# Leads whose TITLE contains one of these phrases are not shown in the workbook
+# (whole words, any case). Free: the search itself is unchanged. Example: no sales
+# and no hardware roles. Run `refresh` after editing to apply it to existing leads.
+title_exclude = [
+  # sales
+  "Sales", "Presales", "Pre-Sales", "Business Development", "Account Executive", "Account Manager",
+  # hardware
+  "Hardware", "HW", "Silicon", "ASIC", "FPGA", "VLSI", "Chip", "Analog", "RF", "PCB",
+  "Board Design", "Mechanical", "Electrical",
+]
+
+# Company careers pages (a list of jobs, not one job). true = shown, except when the
+# company already has a job lead shown. false = always hidden.
+show_career_pages = true
+
+# The Posted cell is shaded when the job was posted more than this many days ago (still shown).
+old_posting_days = 60

@@ -1,0 +1,33 @@
+[budget]
+monthly_limit = 250
+per_run = 16
+pages_per_query = 2
+max_query_words = 20
+
+[google]
+freshness = "week"
+
+[location]
+query_terms = ["Israel", "Tel Aviv"]
+
+[[region]]
+name = "Central"
+cities = ["Tel Aviv"]
+
+[[region]]
+name = "Jerusalem"
+enabled = false
+cities = ["Jerusalem"]
+
+[[platform]]
+name = "Greenhouse"
+site = "greenhouse.io"
+
+[[platform]]
+name = "Comeet"
+site = "comeet.com/jobs"
+
+[[platform]]
+name = "Lever"
+site = "jobs.lever.co"
+enabled = false

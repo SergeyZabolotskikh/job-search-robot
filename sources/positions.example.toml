@@ -1,0 +1,118 @@
+# EXAMPLE role list. Copy it to positions.toml (private, git-ignored) and edit the copy:
+#   Windows:      Copy-Item sources\positions.example.toml sources\positions.toml
+#   macOS/Linux:  cp sources/positions.example.toml sources/positions.toml
+# The tool reads positions.toml on every run. Run `uv run job-search-robot preview` after editing.
+#
+# How titles are searched
+#   Each title is sent to Google as an exact phrase. A phrase also matches longer
+#   titles that contain it: "Engineering Manager" finds "Senior Engineering Manager"
+#   and "Software Engineering Manager". So list the SHORTEST phrase that still means
+#   the right job; add a longer variant only when the short one brings noise
+#   (e.g. "Development Manager" would also find "Business Development Manager").
+#
+# Tracks
+#   One track per kind of job you apply for (e.g. one per CV). Each lead in the workbook
+#   shows its track's label, so you know which CV to send.
+#
+# Family fields
+#   id        stable key (letters, digits, _), used in results; don't rename casually
+#   name      readable name, shown in the workbook
+#   track     a track id from [tracks] below
+#   priority  1, 2 or 3: how often it is searched (see budget.revisit_days in search.toml)
+#   enabled   false = kept here for reference, never searched
+#   titles    search phrases (no quotation marks inside)
+#   notes     optional: what to check in a posting before applying
+
+[tracks.management]
+label = "Management (EM CV)"
+
+[tracks.ic]
+label = "Architecture / IC (Tech Lead CV)"
+
+# ---------------------------------------------------------------- management track
+
+[[family]]
+id = "engineering_manager"
+name = "Engineering manager"
+track = "management"
+priority = 1
+enabled = true
+titles = ["Engineering Manager", "Software Development Manager", "R&D Manager"]
+notes = "Check team size and how hands-on the role is."
+
+[[family]]
+id = "team_lead"
+name = "Team lead (people)"
+track = "management"
+priority = 1
+enabled = true
+titles = ["Software Team Lead", "Backend Team Lead", "R&D Team Lead", "Development Team Lead",
+          "Software Team Leader", "Backend Team Leader", "R&D Team Leader"]
+notes = "Israeli postings often say 'Team Leader'. Check the stack."
+
+[[family]]
+id = "group_manager"
+name = "Group manager / group lead"
+track = "management"
+priority = 2
+enabled = true
+titles = ["Engineering Group Manager", "R&D Group Manager", "Development Group Manager",
+          "Engineering Group Lead", "R&D Group Leader"]
+notes = "Usually means managing team leads."
+
+[[family]]
+id = "head_of"
+name = "Head of engineering / R&D"
+track = "management"
+priority = 2
+enabled = true
+titles = ["Head of Engineering", "Head of R&D", "Head of Development", "Head of Software"]
+notes = "Check company size and reporting line."
+
+[[family]]
+id = "director_vp"
+name = "Director / VP"
+track = "management"
+priority = 3
+enabled = false
+titles = ["Director of Engineering", "Engineering Director", "R&D Director", "VP Engineering", "VP R&D"]
+notes = "Disabled example: enable it if it fits you."
+
+# ---------------------------------------------------------------- IC / architecture track
+
+[[family]]
+id = "software_architect"
+name = "Software architect"
+track = "ic"
+priority = 2
+enabled = true
+titles = ["Software Architect", "Backend Architect", "Software Systems Architect"]
+notes = "Check whether it is hands-on and which stack."
+
+[[family]]
+id = "staff_principal"
+name = "Staff / principal engineer"
+track = "ic"
+priority = 2
+enabled = true
+titles = ["Staff Engineer", "Staff Software Engineer", "Staff Backend Engineer",
+          "Principal Engineer", "Principal Software Engineer", "Principal Backend Engineer"]
+notes = "Expectations vary by company."
+
+[[family]]
+id = "tech_lead"
+name = "Tech lead"
+track = "ic"
+priority = 2
+enabled = true
+titles = ["Tech Lead", "Technical Lead", "Technical Leader"]
+notes = "Some 'Tech Lead' postings are people-management roles."
+
+[[family]]
+id = "solution_architect"
+name = "Solution / integration architect"
+track = "ic"
+priority = 3
+enabled = true
+titles = ["Solution Architect", "Solutions Architect", "Technical Architect", "Integration Architect"]
+notes = "Watch for presales roles with a sales quota."

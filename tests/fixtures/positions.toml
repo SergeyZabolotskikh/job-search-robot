@@ -1,0 +1,36 @@
+[tracks.management]
+label = "Management"
+cv = "em.pdf"
+
+[tracks.ic]
+label = "IC"
+cv = "tl.pdf"
+
+[[family]]
+id = "architecture"
+name = "Software architecture"
+track = "ic"
+priority = 1
+titles = ["Software Architect", "Software Systems Architect", "Software System Architect"]
+
+[[family]]
+id = "staff"
+name = "Staff and Principal"
+track = "ic"
+priority = 2
+titles = ["Staff Software Engineer", "Staff Engineer", "Principal Software Engineer", "Principal Engineer"]
+
+[[family]]
+id = "em"
+name = "Engineering management"
+track = "management"
+priority = 2
+titles = ["Engineering Manager", "R&D Manager"]
+
+[[family]]
+id = "vp"
+name = "VP"
+track = "management"
+priority = 3
+enabled = false
+titles = ["VP Engineering"]
