@@ -6,6 +6,9 @@ details differently:
 - Greenhouse: the `job__location` element (or `job_post_location`) and `published_at`; closed = 404
   or board redirect. Links that move to the company's own site are read from Greenhouse's embedded copy.
 - Ashby, Lever, Workable and most company sites: a schema.org JobPosting block (JSON-LD).
+- SmartRecruiters and some company sites: the same JobPosting as microdata (`itemprop` tags).
+- Workday: never requested (it refused the tool with HTTP 429, and its page is built by JavaScript);
+  the location comes from the job address. Open/closed and the posting date stay unknown.
 
 Also resolves Google result redirect links (google.com/goto?url=...) to the page address.
 """
@@ -21,12 +24,15 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from .common import VERSION
 from .config import Settings
+from .urls import workday_place
 from .workbook import mentions_israel
 
 MAX_BYTES = 3 * 1024 * 1024
 USER_AGENT = f"Mozilla/5.0 (compatible; JobSearchRobot/{VERSION}; personal job search)"
 ISRAEL_CODES = {"il", "isr", "israel"}
-PLATFORM_HOSTS = (".greenhouse.io", "comeet.com", "ashbyhq.com", "lever.co", "workable.com")
+PLATFORM_HOSTS = (".greenhouse.io", "comeet.com", "ashbyhq.com", "lever.co", "workable.com",
+                  "smartrecruiters.com", "myworkdayjobs.com")
+WORKDAY_NOTE = "Workday: location from the job address; page not read"
 
 
 @dataclass(frozen=True)
@@ -72,7 +78,10 @@ def resolve_redirect(url: str, timeout: int = 15) -> tuple[str | None, str]:
         return None, "network error"
 
 
-def check_page(url: str, platform: str, settings: Settings, fetch=fetch_page) -> PageCheck:
+def check_page(url: str, platform: str, settings: Settings, fetch=fetch_page, context: str = "") -> PageCheck:
+    """`context` is Google's title and snippet for the lead; only Workday uses it."""
+    if platform == "Workday":
+        return _workday(url, context, settings)
     status, final, page = fetch(url)
     start_host, final_host = urlsplit(url).hostname or "", urlsplit(final).hostname or ""
     note = "company site" if final_host and final_host != start_host and not final_host.endswith(
@@ -93,9 +102,14 @@ def check_page(url: str, platform: str, settings: Settings, fetch=fetch_page) ->
         if "error=true" in final or "/jobs/" not in urlsplit(final).path:
             return PageCheck("closed", final_url=final, note="redirected to the company board")
         found = _greenhouse(page, settings)
+    elif platform == "SmartRecruiters":
+        # Assumed like Comeet (no closed SmartRecruiters job seen yet): a closed job lands on the company page.
+        if len(_segments(final)) < 2 <= len(_segments(url)):
+            return PageCheck("closed", final_url=final, note="redirected to the company board")
+        found = None
     else:
         found = None
-    found = found or _json_ld(page, settings)
+    found = found or _json_ld(page, settings) or _microdata(page, settings)
     if found is None:
         return PageCheck("unknown", final_url=final, note=note or "no job details on the page")
     location, in_israel, work_mode, posted = found
@@ -119,6 +133,21 @@ def _greenhouse_embed(url: str, settings: Settings, fetch, final: str, note: str
         return None
     location, in_israel, work_mode, posted = found
     return PageCheck("open", location, in_israel, work_mode, posted, final, note)
+
+
+def _workday(url: str, context: str, settings: Settings) -> PageCheck:
+    """.../job/<location>/<title>_<id>: the location segment names the job's first location only, so a
+    foreign one counts as abroad only when Google's title/snippet doesn't mention Israel either.
+    The note is not one that page checks retry, so Workday is never asked."""
+    place = workday_place(url)
+    if not place:
+        return PageCheck("unknown", final_url=url, note=WORKDAY_NOTE)
+    words = " ".join(re.split(r"[-_+]+", re.sub(r"(?<=[a-z])(?=[A-Z])", " ", place))).strip()  # RehovotISR
+    # "ISR" but not "IL": in US addresses IL is Illinois.
+    in_israel = mentions_israel(words, settings) or "isr" in words.lower().split()
+    if not in_israel and mentions_israel(context, settings):
+        in_israel = None
+    return PageCheck("unknown", f"{words} (from the address)", in_israel, _mode(words), "", url, WORKDAY_NOTE)
 
 
 def _segments(url: str) -> list[str]:
@@ -188,6 +217,35 @@ def _json_ld(page: str, settings: Settings):
             if isinstance(item, dict) and item.get("@type") == "JobPosting":
                 return _job_posting(item, settings)
     return None
+
+
+def _microdata(page: str, settings: Settings):
+    """A JobPosting as microdata (SmartRecruiters, checked 2026-11-18): <meta itemprop="addressLocality"
+    content="...">, addressRegion, addressCountry inside each jobLocation, and datePosted."""
+    if not re.search(r'itemtype="https?://schema\.org/JobPosting"', page, re.I):
+        return None
+    starts = [m.end() for m in re.finditer(r'itemprop="jobLocation"', page)]
+    locations = []
+    for start, end in zip(starts, starts[1:] + [len(page)]):
+        address: dict = {}
+        for prop, value in _meta_props(page[start:min(end, start + 3000)]):
+            if prop.startswith("address"):
+                address.setdefault(prop, value)
+        if address:
+            locations.append({"address": address})
+    posted = next((value for prop, value in _meta_props(page) if prop == "datePosted"), "")
+    found = _job_posting({"jobLocation": locations, "datePosted": posted}, settings)
+    workplace = re.search(r'workplaceType="(remote|hybrid|onsite)"', page, re.I)  # SmartRecruiters
+    if found and workplace:
+        found = (*found[:2], workplace.group(1).lower(), found[3])
+    return found
+
+
+def _meta_props(text: str):
+    for tag in re.findall(r"<meta\b[^>]*>", text, re.I):
+        prop, content = re.search(r'itemprop="([^"]+)"', tag), re.search(r'content="([^"]*)"', tag)
+        if prop and content:
+            yield prop.group(1), html_lib.unescape(content.group(1))
 
 
 def _job_posting(item: dict, settings: Settings):

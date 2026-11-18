@@ -93,10 +93,11 @@ def check_pages(store: ResultStore, settings: Settings, fetch, limit: int = 80) 
     last_host = ""
     for index, row in enumerate(todo, start=1):
         host = urlsplit(row["url"]).hostname or ""
-        if fetch is fetch_page and host == last_host:
-            time.sleep(PAGE_PAUSE_SECONDS)  # be polite: one page per second per site
-        last_host = host
-        check = check_page(row["url"], row["platform"], settings, fetch)
+        if row["platform"] != "Workday":  # Workday pages are never requested (verify._workday)
+            if fetch is fetch_page and host == last_host:
+                time.sleep(PAGE_PAUSE_SECONDS)  # be polite: one page per second per site
+            last_host = host
+        check = check_page(row["url"], row["platform"], settings, fetch, context=f'{row["title"]} {row["snippet"]}')
         store.save_check(row["identity"], check)
         counts[check.status] += 1
         where = check.location or check.note

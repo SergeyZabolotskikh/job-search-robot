@@ -1,7 +1,7 @@
 # Job Search Robot
 
 A small command-line tool that finds job postings at Israeli companies on hiring
-platforms (Comeet, Greenhouse, Lever, Ashby, Workable). It searches Google through
+platforms (Comeet, Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday). It searches Google through
 [SerpApi](https://serpapi.com), opens each job page to check it, and adds only the leads
 it has **never shown you before** to one Excel workbook. Each lead is tagged with the
 CV that fits it.
@@ -187,8 +187,14 @@ All of these are private and git-ignored.
 - Google picks up new postings with a delay, and the search sees only what Google has indexed.
 - Comeet pages state only when a job was last updated, not when it was posted.
 - Ashby marks many Israeli jobs as remote-eligible. Read "remote" there as "remote allowed".
-- Only these platforms are searched: Comeet, Greenhouse, Lever, Ashby and Workable. Jobs
-  that appear only on LinkedIn or on a company's own site aren't found.
+- Workday refuses the tool's page requests, so Workday jobs are never opened: the location
+  comes from the job address (e.g. `.../job/Israel-Yokneam/...`, shown with "(from the
+  address)"), and open/closed and the posting date stay unknown. A job whose address names a
+  place abroad is hidden only when Google's title and snippet don't mention Israel either.
+- SmartRecruiters keeps very old jobs online; check the Posted date.
+- Only these platforms are known: Comeet, Greenhouse, Lever, Ashby, Workable,
+  SmartRecruiters and Workday. Jobs that appear only on LinkedIn or on a company's own site
+  aren't found.
 
 ## Using it with Claude Code
 

@@ -60,7 +60,9 @@ enabled = false
 cities = ["Beer Sheva", "Be'er Sheva", "Beersheba", "Ashdod", "Ashkelon"]
 
 # Hiring platforms. Each query searches ONE platform (Google ignores site: OR site:),
-# so more platforms = more queries. The disabled ones are untested.
+# so more platforms = more queries (each adds one query per title group). The tool knows the job
+# IDs of the first seven and checks their jobs (Workday: from the address only); the ones after
+# Workday are untested.
 [[platform]]
 name = "Comeet"
 site = "comeet.com/jobs"
@@ -89,12 +91,13 @@ enabled = true
 [[platform]]
 name = "SmartRecruiters"
 site = "jobs.smartrecruiters.com"
-enabled = false
+enabled = false          # supported: location, work mode and posting date from the job page
 
 [[platform]]
 name = "Workday"
 site = "myworkdayjobs.com"
-enabled = false
+enabled = false          # supported, but Workday refuses page requests: the location comes from the
+                         # job address; open/closed and the posting date stay unknown
 
 [[platform]]
 name = "BambooHR"

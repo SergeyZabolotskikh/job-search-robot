@@ -58,8 +58,49 @@ def canonical_result(url: str) -> dict | None:
         kind = "job" if job else "career_page"
         if job:
             identity = f"workable:{company.lower()}:{job.group(1).lower()}"
+    elif host.endswith(".myworkdayjobs.com"):
+        platform, company, kind, identity, canonical = _workday(host, segments)
+    elif host == "jobs.smartrecruiters.com" and segments:
+        # /<Company>/<digits>-<title>: the digits are the job ID; /<Company> alone is the company board.
+        platform, company = "SmartRecruiters", segments[0]
+        job = re.fullmatch(r"(\d{6,})(?:-.*)?", segments[1]) if len(segments) > 1 else None
+        kind = "job" if job else "career_page"
+        canonical = f"https://{host}/{company}" + (f"/{segments[1]}" if job else "")
+        identity = f"smartrecruiters:{company.lower()}:{job.group(1)}" if job else canonical
     return {"identity": identity, "url": canonical, "result_type": kind,
             "platform": platform, "company_url_slug": company}
+
+
+WORKDAY_LOCALE = re.compile(r"[a-z]{2}-[a-z]{2}", re.I)   # en-US, he-IL, us-en
+
+
+def _workday(host: str, segments: list[str]) -> tuple[str, str, str, str, str]:
+    """<company>.wd<N>.myworkdayjobs.com/[<locale>/]<site>/job/[<location>/]<title>_<jobId>[/apply/...].
+    The same job appears with other locales, with or without the location, and with /apply or
+    ?source=..., so its identity is the company and job ID only. Other pages (job searches) are the
+    company's board: https://<host>/<site>. Returns (platform, company, kind, identity, url)."""
+    company = host.split(".")[0]
+    path = [s for s in segments if not WORKDAY_LOCALE.fullmatch(s)] if segments else []
+    if "job" in path:
+        start = path.index("job")
+        title = next((i for i in range(start + 1, len(path)) if "_" in path[i]), None)
+        if title is not None:
+            job_id = path[title].rsplit("_", 1)[1]
+            return ("Workday", company, "job", f"workday:{company.lower()}:{job_id.lower()}",
+                    f"https://{host}/" + "/".join(segments[:segments.index(path[title]) + 1]))
+    board = f"https://{host}/" + (path[0] if path and path[0] != "job" else "")
+    return "Workday", company, "career_page", board, board
+
+
+def workday_place(url: str) -> str:
+    """The location segment of a Workday job address (.../job/<location>/<title>_<id>), or "" when the
+    address has none. It is the only location the tool gets for a Workday job (verify._workday)."""
+    try:
+        path = [s for s in urlsplit(url).path.split("/") if s]
+    except ValueError:
+        return ""
+    rest = path[path.index("job") + 1:] if "job" in path else []
+    return rest[0] if len(rest) > 1 and "_" not in rest[0] else ""
 
 
 def in_site(url: str, site: str) -> bool:

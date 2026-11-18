@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .common import utc_now
 from .queries import SearchQuery
-from .urls import canonical_result, in_site
+from .urls import canonical_result, in_site, workday_place
 
 DEFAULT_STATUS = "new"
 
@@ -55,6 +55,7 @@ class ResultStore:
             CREATE TABLE IF NOT EXISTS identity_aliases (old TEXT PRIMARY KEY, new TEXT NOT NULL);
         """)
         self.migrated = self.migrate_identities()
+        self.restore_workday_places()
 
     # ----------------------------------------------------------------- runs and searches
     def start_run(self, run_id: str) -> None:
@@ -139,6 +140,26 @@ class ResultStore:
             changed += 1
         return changed
 
+    def restore_workday_places(self) -> int:
+        """A merged Workday job keeps the address stored first. When that one names no location but
+        an address merged into it did (kept as an old identity), use that one and read the job again."""
+        fixed = 0
+        for row in self.connection.execute(
+                "SELECT identity, url FROM results WHERE platform='Workday' AND result_type='job'").fetchall():
+            if workday_place(row["url"]):
+                continue
+            for (old,) in self.connection.execute("SELECT old FROM identity_aliases WHERE new=?",
+                                                  (row["identity"],)).fetchall():
+                result = canonical_result(old)
+                if result and result["identity"] == row["identity"] and workday_place(result["url"]):
+                    with self.connection:
+                        self.connection.execute("UPDATE results SET url=? WHERE identity=?",
+                                                (result["url"], row["identity"]))
+                        self.connection.execute("DELETE FROM page_checks WHERE identity=?", (row["identity"],))
+                    fixed += 1
+                    break
+        return fixed
+
     def resolve(self, identity: str) -> str:
         row = self.connection.execute("SELECT new FROM identity_aliases WHERE old=?", (identity,)).fetchone()
         return row["new"] if row else identity
@@ -147,7 +168,7 @@ class ResultStore:
     def unchecked_jobs(self, limit: int) -> list[sqlite3.Row]:
         """Job leads whose page was never checked, or whose last check failed temporarily (network,
         too many requests, server error); newest first."""
-        return self.connection.execute("""SELECT r.identity, r.url, r.platform FROM results r
+        return self.connection.execute("""SELECT r.identity, r.url, r.platform, r.title, r.snippet FROM results r
             LEFT JOIN page_checks c ON c.identity = r.identity
             WHERE r.result_type = 'job' AND (c.identity IS NULL OR c.status = 'unknown' AND (
                 c.note LIKE 'page could not%' OR c.note = 'HTTP 429' OR c.note LIKE 'HTTP 5%'))
@@ -185,8 +206,14 @@ class ResultStore:
                         why = f' [{item["google_link_failed"]}]' if item.get("google_link_failed") else ""
                         dropped_examples.append(str(shown or url)[:90] + why)
                     continue
-                is_new = self.connection.execute("SELECT 1 FROM results WHERE identity=?",
-                                                 (result["identity"],)).fetchone() is None
+                stored = self.connection.execute("SELECT url FROM results WHERE identity=?",
+                                                 (result["identity"],)).fetchone()
+                is_new = stored is None
+                url = result["url"]
+                if stored and result["platform"] == "Workday" and workday_place(stored["url"]):
+                    url = stored["url"]   # the job's only location source: keep an address that names one
+                elif stored and result["platform"] == "Workday" and workday_place(url):
+                    self.connection.execute("DELETE FROM page_checks WHERE identity=?", (result["identity"],))
                 now = utc_now()
                 title = str(item.get("title") or result["url"])
                 snippet = str(item.get("snippet") or "")
@@ -195,7 +222,7 @@ class ResultStore:
                     ON CONFLICT(identity) DO UPDATE SET url=excluded.url, title=excluded.title,
                     snippet=CASE WHEN excluded.snippet != '' THEN excluded.snippet ELSE results.snippet END,
                     last_seen_utc=excluded.last_seen_utc
-                """, (result["identity"], result["url"], title, snippet, result["platform"],
+                """, (result["identity"], url, title, snippet, result["platform"],
                       result["company_url_slug"], result["result_type"], now, now, run_id))
                 self.connection.execute("INSERT OR IGNORE INTO matches VALUES (?, ?, ?, ?, ?)",
                                         (run_id, result["identity"], query.text, query.family_id, query.track))

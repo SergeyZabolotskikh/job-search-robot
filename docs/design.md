@@ -16,13 +16,13 @@ scheduling, and platform (ATS) APIs.
 | Topic | Decision |
 | --- | --- |
 | Search source | Google only, through SerpApi |
-| Budget | SerpApi free plan: 250 searches/month, at most 50/hour; cached (≤ 1 h) and failed searches are not counted. ~16 searches per run. The tool counts every search and stops at the limits |
+| Budget | SerpApi free plan: 250 searches/month, at most 50/hour; cached (≤ 1 h) and failed searches are not counted. Up to `per_run` searches per run (example 16; one per title group and platform). The tool counts every search and stops at the limits |
 | Inputs | `sources/positions.toml` and `sources/search.toml`, private to each user (git-ignored), copied from the tracked `*.example.toml` files |
 | Tracks | Each role family belongs to a track; the workbook shows the track's label, so the user knows which CV to send. The example has `management` and `ic` |
 | Memory | SQLite `data/history.sqlite3`: the source of truth for "seen before", the user's Status/Note, page checks and the search counter |
 | Output | One workbook `results/job_leads.xlsx`, plus `results/last_run.json` |
-| Lead identity | The platform's job ID (Comeet, Greenhouse incl. its EU host, Lever, Ashby, Workable), else the cleaned URL. Identities stored under older rules are re-computed and merged; Status/Note move with them |
-| Page check | Each job page is opened once with a plain HTTP request (free; at most 80 per run, 1 s between pages of one site) for location, work mode, posting date, open/closed. Greenhouse links that move to a company site are read from Greenhouse's embedded copy of the job |
+| Lead identity | The platform's job ID (Comeet, Greenhouse incl. its EU host, Lever, Ashby, Workable, SmartRecruiters, Workday: company + job ID, whatever the locale, location or `/apply` part of the address), else the cleaned URL. Identities stored under older rules are re-computed and merged; Status/Note move with them |
+| Page check | Each job page is opened once with a plain HTTP request (free; at most 80 per run, 1 s between pages of one site) for location, work mode, posting date, open/closed. Greenhouse links that move to a company site are read from Greenhouse's embedded copy of the job. SmartRecruiters states the job as schema.org microdata. Workday is never requested (it answered HTTP 429 to the first request on 3 sites, 2026-11-18): the location comes from the address; it counts as abroad only when Google's title/snippet doesn't mention Israel either, since the address names only the first location |
 | Workbook filters | Hidden but kept in memory: titles with a `title_exclude` phrase, closed jobs, jobs whose page lists only places outside Israel, duplicates (same title at the same company; the same job at two levels with the same location and date), careers pages of companies that have a job shown (all careers pages when `show_career_pages = false`). A lead the user marked is never hidden; a `duplicate` mark never counts as the original |
 | Secrets | `local.env.yaml` (git-ignored; template `local.env.example.yaml`) sets environment defaults; a real environment variable wins; otherwise a hidden prompt |
 | Privacy | Settings, CVs, `data/`, `results/`, `local.env.yaml` and working notes (`docs/PROGRESS.md`, `docs/tasks/`) are git-ignored. The tool never reads CVs |

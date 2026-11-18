@@ -1,7 +1,7 @@
 # Job Search Robot
 
 Local CLI that searches Google (through SerpApi, free plan) for jobs on hiring platforms
-(Comeet, Greenhouse, Lever, Ashby, Workable), checks each job page, and writes only
+(Comeet, Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday), checks each job page, and writes only
 never-seen leads to an Excel workbook, tagged with the CV ("track") that fits. The user runs
 it from their own computer every ~2 days. README.md is the user guide.
 
@@ -66,7 +66,7 @@ The repository is shared; each user's personal files stay on their machine (git-
 | urls.py | Canonical URLs and the stable lead identity per platform (the basis of "seen before") |
 | store.py | SQLite memory: results, searches (counter), leads (Status/Note), page_checks, identity_aliases, query_outcomes |
 | collector.py | One run: import Status/Note, search breadth-first, follow Google redirect links (second try after the searches), record outcomes, check pages, publish |
-| verify.py | Job page check: Comeet `POSITION_DATA`, Greenhouse `job__location` / embedded copy, schema.org JobPosting; Google redirect links → page address |
+| verify.py | Job page check: Comeet `POSITION_DATA`, Greenhouse `job__location` / embedded copy, schema.org JobPosting (JSON-LD or microdata: SmartRecruiters); Workday from the address, never requested; Google redirect links → page address |
 | filters.py | Hide rules (excluded titles, careers pages, closed, abroad) and duplicate detection |
 | workbook.py | The Excel workbook; text is never written as a formula; atomic save |
 | query_report.py, reports.py | Sweep report; preview HTML/CSV |

@@ -183,6 +183,24 @@ class IdentityTests(unittest.TestCase):
                 "https://jobs.lever.co/fixture", "https://jobs.ashbyhq.com/fixture", "https://apply.workable.com/fixture"]
         self.assertTrue(all(app.canonical_result(url)["result_type"] == "career_page" for url in urls))
 
+    def test_workday_and_smartrecruiters_jobs_have_one_identity(self):
+        host = "https://fixture.wd5.myworkdayjobs.com"
+        same_job = [f"{host}/en-US/External/job/Israel-Haifa/Engineering-Manager_JR-123",
+                    f"{host}/External/job/Engineering-Manager_JR-123/apply/applyManually?source=board",
+                    f"{host}/he-IL/External/job/Israel-Haifa/Engineering-Manager_JR-123"]
+        found = [app.canonical_result(url) for url in same_job]
+        self.assertEqual({(r["identity"], r["platform"], r["result_type"], r["company_url_slug"]) for r in found},
+                         {("workday:fixture:jr-123", "Workday", "job", "fixture")})
+        self.assertEqual(found[1]["url"], f"{host}/External/job/Engineering-Manager_JR-123")
+        searches = [f"{host}/us-en/External?Country=abc", f"{host}/External/13/refreshFacet/318c8b?source=x"]
+        self.assertEqual({(app.canonical_result(url)["identity"], app.canonical_result(url)["result_type"])
+                          for url in searches}, {(f"{host}/External", "career_page")})
+        job = "https://jobs.smartrecruiters.com/FixtureCo/744000157809003-engineering-manager"
+        found = app.canonical_result(job + "?oga=true")
+        self.assertEqual((found["identity"], found["url"], found["platform"], found["result_type"]),
+                         ("smartrecruiters:fixtureco:744000157809003", job, "SmartRecruiters", "job"))
+        self.assertEqual(app.canonical_result("https://jobs.smartrecruiters.com/FixtureCo")["result_type"], "career_page")
+
     def test_query_based_identity_is_preserved_for_custom_platforms(self):
         first = app.canonical_result("https://careers.example.com/job?source=engineering&jobId=42&utm_campaign=test")
         second = app.canonical_result("https://careers.example.com/job?source=engineering&jobId=43")
@@ -567,6 +585,32 @@ class PageCheckTests(unittest.TestCase):
                                                            embed: (200, board, "<html>")})
         self.assertEqual(closed.status, "closed")
 
+    def test_smartrecruiters_page_microdata(self):
+        url = "https://jobs.smartrecruiters.com/FixtureCo/744000157809003-engineering-manager"
+        html = ('<main itemscope itemtype="http://schema.org/JobPosting"><h1 itemprop="title">Engineering Manager</h1>'
+                '<li itemprop="jobLocation" itemscope itemtype="http://schema.org/Place"><span itemprop="address">'
+                '<spl-job-location formattedAddress="Tel Aviv-Yafo, Israel" workplaceType="hybrid"></spl-job-location>'
+                '<meta itemprop="addressCountry" content="Israel"><meta itemprop="addressLocality" content="Tel Aviv-Yafo">'
+                '<meta itemprop="addressRegion" content="Tel Aviv District"></span></li>'
+                '<meta itemprop="datePosted" content="2026-10-26T13:07:39.752Z"></main>')
+        found = self.check(url, "SmartRecruiters", {url: (200, url, html)})
+        self.assertEqual((found.status, found.location, found.in_israel, found.work_mode, found.posted),
+                         ("open", "Tel Aviv-Yafo, Tel Aviv District, Israel", True, "hybrid", "2026-10-26"))
+        board = "https://jobs.smartrecruiters.com/FixtureCo"
+        self.assertEqual(self.check(url, "SmartRecruiters", {url: (200, board, "<html>")}).status, "closed")
+
+    def test_workday_location_comes_from_the_address_without_a_request(self):
+        def check(place, context=""):
+            url = "https://fixture.wd5.myworkdayjobs.com/en-US/External/job/" + (f"{place}/" if place else "") + "EM_JR1"
+            return app.check_page(url, "Workday", self.settings, fetch=None, context=context)  # a request would fail
+        self.assertEqual((check("Israel-Haifa").in_israel, check("Israel-Haifa").location),
+                         (True, "Israel Haifa (from the address)"))
+        self.assertTrue(check("RehovotISR").in_israel)
+        self.assertIs(check("US-CA-Santa-Clara").in_israel, False)                       # abroad: hidden
+        self.assertIs(check("Chicago-IL").in_israel, False)                              # IL is Illinois here
+        self.assertIsNone(check("US-CA-Santa-Clara", "EM - Santa Clara or Israel").in_israel)  # may be in Israel too
+        self.assertEqual((check("").status, check("").location, check("").in_israel), ("unknown", "", None))
+
 
 class HideRuleTests(unittest.TestCase):
     def setUp(self):
@@ -652,6 +696,54 @@ class DedupeMemoryTests(unittest.TestCase):
             self.assertEqual(store.ingest("run2", app.SearchQuery("em", "EM", "management", 1, 0, ("greenhouse.io",), (), "q2"),
                                           [{"link": "https://boards.eu.greenhouse.io/acme/jobs/777", "title": "EM"}])["kept"][0]["new"],
                              False)                                    # found again: not new
+        finally:
+            store.close()
+
+    def test_workday_rows_stored_before_support_merge_and_are_never_requested(self):
+        placed = "https://fixture.wd5.myworkdayjobs.com/External/job/US-CA-Santa-Clara/Engineering-Manager_JR9"
+        urls = ["https://fixture.wd5.myworkdayjobs.com/en-US/External/job/Engineering-Manager_JR9",   # no location
+                placed + "/apply"]
+        app.ResultStore(self.history).close()
+        connection = sqlite3.connect(self.history)
+        with connection:
+            for n, url in enumerate(urls):                             # stored as "Other" before the fix
+                seen = f"2026-11-1{n}T10:00:00+00:00"
+                connection.execute("INSERT INTO results VALUES (?, ?, 'Engineering Manager', 'Santa Clara', 'Other', "
+                                   "'', 'other_page', ?, ?, 'run1')", (url, url, seen, seen))
+            connection.execute("INSERT INTO leads VALUES (?, 'not relevant', 'US only', '2026-11-18T11:00:00+00:00')",
+                               (urls[1],))
+        connection.close()
+        store = app.ResultStore(self.history)                          # re-opening migrates
+        try:
+            self.assertEqual(store.migrated, 2)
+            self.assertEqual([(r["identity"], r["platform"], r["result_type"], r["status"], r["note"]) for r in store.rows()],
+                             [("workday:fixture:jr9", "Workday", "job", "not relevant", "US only")])
+            with contextlib.redirect_stdout(io.StringIO()):
+                counts = app.check_pages(store, app.load_settings(POSITIONS, SEARCH), fetch=None)  # a request would fail
+            self.assertEqual(counts, {"unknown": 1})
+            self.assertEqual(store.unchecked_jobs(10), [])             # never asked again
+            row = store.rows()[0]                                      # the merged address that names the place
+            self.assertEqual((row["url"], row["check"]["location"]), (placed, "US CA Santa Clara (from the address)"))
+        finally:
+            store.close()
+
+    def test_workday_keeps_the_address_that_names_the_location(self):
+        bare = "https://fixture.wd5.myworkdayjobs.com/External/job/Engineering-Manager_JR7"
+        placed = "https://fixture.wd5.myworkdayjobs.com/External/job/Israel-Haifa/Engineering-Manager_JR7"
+        query = app.SearchQuery("em", "EM", "management", 1, 0, ("myworkdayjobs.com",), (), "q")
+        settings = app.load_settings(POSITIONS, SEARCH)
+        store = app.ResultStore(self.history)
+        try:
+            def found(link):
+                store.ingest("run1", query, [{"link": link, "title": "Engineering Manager", "snippet": ""}])
+                with contextlib.redirect_stdout(io.StringIO()):
+                    app.check_pages(store, settings, fetch=None)
+                return store.rows()[0]
+            self.assertEqual(found(bare)["check"]["location"], "")
+            row = found(placed)                                        # found again with the location: read again
+            self.assertEqual((row["url"], row["check"]["location"], row["check"]["in_israel"]),
+                             (placed, "Israel Haifa (from the address)", 1))
+            self.assertEqual(found(bare)["url"], placed)               # a later address without it doesn't replace it
         finally:
             store.close()
 
