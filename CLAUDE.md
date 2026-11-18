@@ -9,6 +9,7 @@ it from their own computer every ~2 days. README.md is the user guide.
 1. If docs/PROGRESS.md exists, read it: where work stopped and the next action.
 2. Open the current task file in docs/tasks/ (if any).
 3. Agreed design decisions: docs/design.md. If a decision changes, update it there.
+4. Ideas not started yet: docs/roadmap.md. When one starts, it becomes a task; update its status there.
 
 ## Private vs shared
 The repository is shared; each user's personal files stay on their machine (git-ignored):
@@ -17,7 +18,7 @@ The repository is shared; each user's personal files stay on their machine (git-
 | --- | --- |
 | sources/positions.toml, sources/search.toml | sources/positions.example.toml, sources/search.example.toml |
 | local.env.yaml | local.env.example.yaml |
-| docs/PROGRESS.md, docs/tasks/ (working notes) | docs/task-template.md (their format), docs/design.md |
+| docs/PROGRESS.md, docs/tasks/ (working notes) | docs/task-template.md (their format), docs/design.md, docs/roadmap.md |
 | data/, results/, CVs (sources/cvs/, *.pdf, *.doc, *.docx) | code, tests, README.md, CLAUDE.md |
 
 - The examples must stay generic and valid: no personal details, and a new setting gets

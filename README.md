@@ -196,6 +196,15 @@ All of these are private and git-ignored.
   SmartRecruiters and Workday. Jobs that appear only on LinkedIn or on a company's own site
   aren't found.
 
+## Roadmap
+
+[docs/roadmap.md](docs/roadmap.md) lists suggested improvements that are not built yet, each
+with why, what it would do, and what has to be decided first. Among them: a browser search
+source next to SerpApi (no monthly search limit), an AI check of each job page against a
+short profile of the roles you are looking for, occasional city searches, other search
+services, and reading company job boards directly. Some of them would change what the tool
+does (see the "Changes scope?" column there), so none starts without your decision.
+
 ## Using it with Claude Code
 
 `CLAUDE.md` tells [Claude Code](https://claude.com/claude-code) how this project works
@@ -214,5 +223,6 @@ uv run pytest
 ```
 
 The tests never touch the network or SerpApi. Code lives in `src/job_search_robot/`;
-`CLAUDE.md` describes the modules, and `docs/design.md` records the design decisions.
-`docs/task-template.md` shows the format of the private task notes.
+`CLAUDE.md` describes the modules, `docs/design.md` records the design decisions, and
+`docs/roadmap.md` lists improvements not started yet. `docs/task-template.md` shows the
+format of the private task notes.

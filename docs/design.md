@@ -73,6 +73,7 @@ local.env.example.yaml           template; copy to local.env.yaml (private)
 src/job_search_robot/            code (module map in CLAUDE.md)
 tests/                           tests and fixtures (no network)
 docs/design.md                   this file
+docs/roadmap.md                  future improvements, not started yet
 docs/task-template.md            format of the private task notes
 data/history.sqlite3             tool memory (private)
 results/                         workbook and reports (private)
