@@ -6,7 +6,8 @@ Rules, in order (decided with the user 2026-11-10, extended 2026-11-17):
 3. A company careers page (a board, not one job): hidden unless `show_career_pages = true`.
 4. The job page says the job is closed: hidden.
 5. The job page states a location and none of it is in Israel: hidden.
-6. Duplicates: same company and same title once location tags are removed, or titles that differ
+6. Duplicates: same company and same title once location tags are removed (text in parentheses
+   counts unless it only names a place or work mode), or titles that differ
    only by a leading level word (Staff / Principal ...) with the same page location and posting
    date -> only the earliest is shown. A lead the user marked "duplicate" never counts as the
    original. A company board page is hidden when another lead of that company is shown.
@@ -38,13 +39,20 @@ def is_board(row: dict) -> bool:
     return row["result_type"] == "career_page" or bool(re.match(r"\s*jobs at\b", row["title"], re.I))
 
 
+def _place_only(match: re.Match) -> str:
+    """'(Remote)', '(Tel Aviv / Hybrid)' only name a place or work mode: dropped. '(Platform)' or
+    '(Data team)' tell two jobs apart: kept (dropping them hid separate jobs as duplicates)."""
+    parts = [p.strip() for p in re.split(r"[,/;|&]|\s-\s", match.group(1)) if p.strip()]
+    return " " if parts and all(LOCATION_TAG.fullmatch(p) for p in parts) else f" {match.group(1)} "
+
+
 def title_key(row: dict) -> str:
     """Comparable job title: no 'Job Application for', no '@ Company', no location tags."""
     title = row["title"].lower()
     title = re.sub(r"^\s*(job application for|jobs at)\s+", "", title)
     title = re.sub(r"\s+(@|at)\s+[^|,(-]+(\s*-\s*comeet)?\s*$", "", title)
     title = re.sub(r"\s*-\s*comeet\s*$", "", title)
-    title = re.sub(r"\([^)]*\)", " ", title)
+    title = re.sub(r"\(([^)]*)\)", _place_only, title)
     parts = [p for p in re.split(r"\s+[-–|]\s+|,\s*", title) if p and not LOCATION_TAG.fullmatch(p.strip())]
     kept = [p for p in parts if not (LOCATION_TAG.search(p) and len(p.split()) <= 3)] or parts
     return re.sub(r"[^a-z0-9&]+", " ", " ".join(kept)).strip()

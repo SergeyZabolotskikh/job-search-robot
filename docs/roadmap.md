@@ -17,6 +17,7 @@ Statuses: `idea` (not discussed in detail), `needs decision` (the user has to ch
 | 5 | [Company job boards read directly](#5-company-job-boards-read-directly) | idea | yes |
 | 6 | [Platform follow-ups](#6-platform-follow-ups) | idea | no |
 | 7 | [Sharing the repository](#7-sharing-the-repository) | needs decision | no |
+| 8 | [A "Hidden" sheet in the workbook](#8-a-hidden-sheet-in-the-workbook) | needs decision | no |
 
 ---
 
@@ -122,3 +123,22 @@ the searches find), and platform APIs are out of scope in CLAUDE.md today.
 - A license (e.g. MIT) for others to use the code.
 - Review `sources/search.example.toml` defaults against what the tests showed (freshness "any",
   which platforms are on by default).
+
+## 8. A "Hidden" sheet in the workbook
+
+**Why.** The hide rules (excluded title, closed, abroad, duplicates, careers pages) remove leads
+from the workbook silently; the run prints only counts. An external review (2026-11-18) pointed out
+that for a job search, silently missing a relevant job is the worst failure, and suggested keeping
+exact job-ID dedupe automatic while showing uncertain title-based matches for review. The rules
+that guess are the title duplicates, the "same job at two levels" rule (Staff / Principal with the
+same location and posting date), and Workday's "abroad" from the job address.
+
+**Idea.** A second sheet listing every hidden lead with the same columns plus `Hidden because`
+(e.g. `duplicate of <title>`, `abroad: <location>`, `closed: <note>`, `excluded title: <phrase>`).
+The main sheet stays as it is.
+
+**Before building.**
+- The workbook is one sheet by design (design.md); this changes that.
+- If the user sets a Status on the Hidden sheet, should it be imported? Today a marked lead is
+  always shown, so a mark there would move the lead to the main sheet on the next run.
+- Size: hidden leads accumulate (about 60 today); maybe only the last N days, or a filter.

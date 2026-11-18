@@ -646,6 +646,14 @@ class HideRuleTests(unittest.TestCase):
         self.assertEqual([r["identity"] for r in shown], ["1", "4", "8", "9"])
         self.assertEqual(dict(hidden), {"duplicate": 2, "excluded title": 1, "abroad": 1, "closed": 1})
 
+    def test_parentheses_that_name_the_job_keep_jobs_apart(self):
+        rows = [self.row("a", "Engineering Manager (Platform)", seen="2026-11-09T10:00:00+00:00"),
+                self.row("b", "Engineering Manager (Data)", seen="2026-11-10T10:00:00+00:00"),         # another job
+                self.row("c", "Engineering Manager (Data) (Tel Aviv / Hybrid)", seen="2026-11-11T10:00:00+00:00")]  # b again
+        shown, hidden = app.split_visible(rows, self.settings)
+        self.assertEqual([r["identity"] for r in shown], ["a", "b"])
+        self.assertEqual(dict(hidden), {"duplicate": 1})
+
     def test_same_job_at_two_levels_and_duplicate_mark(self):
         def page(posted):
             return {"status": "open", "in_israel": 1, "location": "Tel Aviv-Yafo, Israel", "posted": posted}

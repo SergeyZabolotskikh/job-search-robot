@@ -10,6 +10,12 @@ It is built for a run every ~2 days on SerpApi's **free plan** (250 searches a m
 The included configuration looks for engineering-manager and architect / tech-lead
 roles in central and northern Israel. Edit two TOML files to make it yours.
 
+> **Fully vibe-coded.** The code, tests and documentation were written by AI from
+> plain-language requests: a first prototype by ChatGPT, then everything since by
+> [Claude Code](https://claude.com/claude-code). The author decided what to build, tested it
+> on a real job search and reviewed the results, but didn't write the code by hand. See
+> [Using it with Claude Code](#using-it-with-claude-code).
+
 ## How it works
 
 1. **Search.** One Google query per group of job titles and platform, for example
@@ -202,7 +208,8 @@ All of these are private and git-ignored.
 with why, what it would do, and what has to be decided first. Among them: a browser search
 source next to SerpApi (no monthly search limit), an AI check of each job page against a
 short profile of the roles you are looking for, occasional city searches, other search
-services, and reading company job boards directly. Some of them would change what the tool
+services, reading company job boards directly, and a workbook sheet that lists every hidden
+lead with the reason. Some of them would change what the tool
 does (see the "Changes scope?" column there), so none starts without your decision.
 
 ## Using it with Claude Code
