@@ -6,9 +6,13 @@ platforms (Comeet, Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday)
 it has **never shown you before** to one Excel workbook. Each lead is tagged with the
 CV that fits it.
 
-It is built for a run every ~2 days on SerpApi's **free plan** (250 searches a month).
-The included configuration looks for engineering-manager and architect / tech-lead
-roles in central and northern Israel. Edit two TOML files to make it yours.
+**By default it uses SerpApi's free plan: 250 searches a month.** The tool counts its
+searches and stops at the limit. To search more, use another SerpApi key or pay for a bigger
+plan: see [Search limits and getting more searches](#search-limits-and-getting-more-searches).
+
+The example settings are sized for a run every ~2 days on the free plan. They search five
+platforms for engineering-manager, team-lead, group-manager, head-of and software-architect
+roles in Israel. [Setup](#setup-once) walks through everything you need to configure.
 
 > **Fully vibe-coded.** The code, tests and documentation were written by AI from
 > plain-language requests: a first prototype by ChatGPT, then everything since by
@@ -30,61 +34,195 @@ roles in central and northern Israel. Edit two TOML files to make it yours.
 
 ## Setup (once)
 
-You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.14 for you) and a free
-[SerpApi](https://serpapi.com) account.
+Steps 1-6 are free. Only step 7 uses searches.
 
-1. Clone the repository and install the dependencies:
-   ```bash
-   git clone <this repository's URL>
-   cd job-search-robot
-   uv sync
-   ```
-2. Put your SerpApi key in a local file that git ignores:
+### What you need
+
+- [Git](https://git-scm.com/downloads), to download the code.
+- [uv](https://docs.astral.sh/uv/), which installs Python 3.14 and the dependencies for you:
+  ```powershell
+  # Windows (PowerShell)
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+  ```
+  ```bash
+  # macOS/Linux
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+  Then open a new terminal and check that `uv --version` works.
+- A free [SerpApi](https://serpapi.com) account, for your API key.
+- Excel, LibreOffice or another spreadsheet app, to read the results.
+
+### Step 1: Download and install
+
+```bash
+git clone <this repository's URL>
+cd job-search-robot
+uv sync
+```
+
+### Step 2: Add your SerpApi key
+
+1. Copy your key from your [SerpApi API key page](https://serpapi.com/manage-api-key).
+2. Create your private key file, which git ignores:
    ```powershell
    Copy-Item local.env.example.yaml local.env.yaml     # macOS/Linux: cp local.env.example.yaml local.env.yaml
    ```
-   Open `local.env.yaml` and replace `paste-your-key-here` with your key (SerpApi
-   dashboard, "API key"). Alternatives: set a `SERPAPI_API_KEY` environment variable
-   (it wins over the file), or leave both empty and `run` asks for the key (hidden
-   input, never saved). Never put the key in any other file.
-3. Create your own settings from the examples, then make them yours (see
-   [Configure your search](#configure-your-search)):
-   ```powershell
-   Copy-Item sources\positions.example.toml sources\positions.toml
-   Copy-Item sources\search.example.toml sources\search.toml
-   # macOS/Linux: cp sources/positions.example.toml sources/positions.toml
-   #              cp sources/search.example.toml sources/search.toml
+3. Open `local.env.yaml` and replace `paste-your-key-here` with your key:
+   ```yaml
+   SERPAPI_API_KEY: "your-key"
    ```
-   Your copies are private: git ignores them, so they stay on your computer.
-4. Check the plan. It's free and uses no key or network:
-   ```bash
-   uv run job-search-robot preview
-   ```
-   It prints every query, which ones the next run will search, and whether the full
-   schedule fits the monthly limit. `results/search_plan.html` has clickable Google
-   links, so you can try any query by hand.
 
-## Configure your search
+Alternatives: set a `SERPAPI_API_KEY` environment variable (it wins over the file), or leave
+both empty and `run` asks for the key (hidden input, never saved). Never put the key in any
+other file.
 
-| Your file (private) | Started from (in git) | What you set |
+### Step 3: Create your settings files
+
+```powershell
+Copy-Item sources\positions.example.toml sources\positions.toml
+Copy-Item sources\search.example.toml sources\search.toml
+# macOS/Linux: cp sources/positions.example.toml sources/positions.toml
+#              cp sources/search.example.toml sources/search.toml
+```
+
+Git ignores your copies, so they stay on your computer. Edit the copies, not the examples.
+
+### Step 4: Set the roles you want
+
+Open `sources/positions.toml`.
+
+**Tracks** are the kinds of job you apply for, usually one per CV. The label appears in the
+workbook, so you know which CV to send:
+
+```toml
+[tracks.management]
+label = "Management (EM CV)"
+```
+
+**Families** are groups of job titles to search:
+
+```toml
+[[family]]
+id = "engineering_manager"
+name = "Engineering manager"
+track = "management"
+priority = 1
+enabled = true
+titles = ["Engineering Manager", "Software Development Manager", "R&D Manager"]
+```
+
+1. Rename the track labels to match your CVs, and remove any track you don't need.
+2. Edit the `titles` of each family, or copy a `[[family]]` block to add a new one.
+3. Set `enabled = false` on every family you don't want.
+4. Give your most important families `priority = 1`.
+
+List the **shortest phrase** that still means the right job. Each title is an exact-phrase
+search, so "Engineering Manager" also finds "Senior Engineering Manager". Every enabled family
+costs at least one search per platform each time it is searched, so keep the list focused.
+
+### Step 5: Set location, platforms and filters
+
+Open `sources/search.toml` and check these sections:
+
+- **`[location] query_terms`:** every search requires a page to mention one of these. The
+  example, `["Israel", "Tel Aviv"]`, already covers the whole country. Keep it short: extra
+  cities make every search longer and can split your titles into more searches.
+- **`[[region]]`:** your city lists. **Add every city you would work in.** A job page that
+  names only a city missing from all lists, with no country, counts as abroad and is hidden.
+  Regions don't change the search. `enabled = false` only changes the Region label to
+  `outside area`; those jobs are still shown.
+- **`[[platform]]`:** which hiring platforms to search. Each one adds a search per title
+  group. The example has the five that found Israeli jobs in testing.
+- **`[filters] title_exclude`:** titles to hide, such as "Sales" or "Hardware".
+- **`[filters] show_career_pages`:** whether to show company careers pages as well as jobs.
+- **`[budget]`:** the example fits the free plan, so leave it unless you have more searches.
+  See [Search limits and getting more searches](#search-limits-and-getting-more-searches).
+
+The tool is built for jobs in Israel: its "abroad" check is fixed in the code, so searching
+another country needs a code change.
+
+### Step 6: Check the plan
+
+This is free and uses no key or network:
+
+```bash
+uv run job-search-robot preview
+```
+
+It prints every query, which ones the next run will search, and whether the schedule fits the
+monthly limit. With the unedited example: 25 queries, 16 in the next run, about 244 searches a
+month. If it says **over the limit**, turn off some families or platforms. A mistake in a
+settings file stops the tool here with a message, before any search.
+`results/search_plan.html` has clickable Google links, so you can try any query by hand.
+
+### Step 7: Run your first search
+
+**This spends up to 16 of your 250 monthly searches** (the `per_run` setting):
+
+```bash
+uv run job-search-robot run
+```
+
+It takes a few minutes. If it asks for your key, `local.env.yaml` still has the placeholder.
+When it finishes, open `results/job_leads.xlsx`; see [Routine](#routine-every-2-days) for how
+to read it.
+
+Some searches may bring nothing: Google sometimes shows other sites instead of the platform,
+and the tool drops those. The next run picks up the queries this one didn't reach.
+
+## Configuration reference
+
+Every setting the tool reads. Run `preview` after each edit. If you delete a setting, the tool
+uses the value below, except `freshness` (`week`), `show_career_pages` (`false`) and `title_exclude` (empty). Settings marked required, and each platform's `name` and `site`, can't be deleted.
+
+### `local.env.yaml`
+
+| Setting | What it does |
+| --- | --- |
+| `SERPAPI_API_KEY` | Your SerpApi key. A real environment variable with the same name wins. |
+
+### `sources/positions.toml`
+
+| Setting | Value | What it does |
 | --- | --- | --- |
-| `sources/positions.toml` | `sources/positions.example.toml` | **Tracks**: one per kind of job you apply for, e.g. one per CV; the workbook shows the track's label. **Role families**: the job titles to search, their track, priority, enabled. |
-| `sources/search.toml` | `sources/search.example.toml` | Budget, freshness, location words, regions and cities, platforms, title filters. |
+| `[tracks.<id>]` `label` | required | Shown in the workbook's Track / CV column. |
+| `[tracks.<id>]` `cv` | optional | A note for you, such as a CV file name. The tool doesn't read it. |
+| `[[family]]` `id` | required | Stable key: letters, digits and `_`. Don't rename it casually. |
+| `name` | defaults to `id` | Shown in the Role family column. |
+| `track` | required | One of your track ids. |
+| `priority` | 1-9, default 2 | Picks the matching `revisit_days` entry. |
+| `enabled` | default `true` | `false` keeps the family in the file without searching it. |
+| `titles` | required | Exact search phrases, without quotation marks. |
+| `notes`, `evidence` | optional | Notes for you. The tool doesn't use them. |
 
-Both files explain every field in comments. If the examples change later, compare them
-with your copies. Tips:
+### `sources/search.toml`
 
-- List the **shortest title phrase** that still means the right job. Each phrase is an
-  exact-phrase search, so "Engineering Manager" also finds "Senior Engineering Manager".
-- **Priority** sets how often a family is searched: `revisit_days = [2, 4, 8]` means every
-  2 days for priority 1, every 4 for priority 2 and every 8 for priority 3.
-- `enabled = false` keeps a family or platform in the file without searching it.
-- **Regions** don't change the search. They label each lead (e.g. `Central`) and mark
-  cities in disabled regions as `outside area`.
-- `title_exclude` hides leads whose title contains a phrase (whole words, any case), for
-  example "Sales" or "Hardware". It's free, because the search itself doesn't change.
+| Section | Setting | Example | What it does |
+| --- | --- | --- | --- |
+| `[budget]` | `monthly_limit` | `250` | The tool stops at this many searches in a calendar month. |
+| | `per_run` | `16` | The most searches one run can spend. |
+| | `per_hour` | `50` | The most searches in one hour. |
+| | `pages_per_query` | `1` | Google result pages per query (1-10). Each page is one search. |
+| | `max_query_words` | `20` | Longer title lists split into more queries. Google ignored the platform at 32 words. |
+| | `revisit_days` | `[2, 4, 8]` | Days until a query is due again, for priority 1, 2, 3. |
+| `[google]` | `country` | `"il"` | Google country. It ranks local pages higher but doesn't exclude others. |
+| | `language` | `"en"` | Google language. |
+| | `freshness` | `"any"` | Date filter: `day`, `week`, `month` or `any`. Keep `any`: with a date filter, Google often ignored the platform. |
+| | `timeout_seconds` | `30` | How long to wait for SerpApi (1-120). |
+| `[location]` | `query_terms` | `["Israel", "Tel Aviv"]` | A page must mention one of these. Required. |
+| `[[region]]` | `name` | `"Central"` | Shown in the Region column. |
+| | `enabled` | `true` | `false` labels its cities `outside area`, without hiding them. |
+| | `cities` | list | City names and spelling variants. They also tell the tool a job is in Israel. |
+| `[[platform]]` | `name` | `"Comeet"` | Shown in the workbook and reports. |
+| | `site` | `"comeet.com/jobs"` | The address searched, without `https://`. |
+| | `enabled` | `true` | `false` keeps the platform in the file without searching it. |
+| `[filters]` | `exclude_terms` | `[]` | Phrases excluded from every search. Each one makes the search longer. |
+| | `title_exclude` | list | Hides leads whose title has one of these (whole words, any case). Free. |
+| | `show_career_pages` | `true` | Shows company careers pages, unless that company already has a job shown. |
+| | `old_posting_days` | `60` | The Posted cell turns orange after this many days. |
 
-Run `preview` after every edit. A configuration error stops the tool before any search.
+After editing `title_exclude`, `show_career_pages` or `old_posting_days`, run
+`uv run job-search-robot refresh` to apply it to the existing leads. It's free.
 
 ## Routine (every ~2 days)
 
@@ -93,8 +231,7 @@ uv run job-search-robot run
 ```
 
 **Close the workbook in Excel first.** If it's open, the run stops before spending any
-searches. The first time, `uv run job-search-robot run --freshness any` also finds older
-postings; by default only pages Google indexed in the past week count.
+searches.
 
 Then open `results/job_leads.xlsx` (Excel, LibreOffice or any spreadsheet app):
 
@@ -108,7 +245,8 @@ Then open `results/job_leads.xlsx` (Excel, LibreOffice or any spreadsheet app):
   The **Posted** cell turns orange when a job is older than 60 days.
 - **Region** comes from the page location, or else from the title and snippet.
 - **Page type** `career page` is a company's job list, not a single job.
-- "New" means new to this tool, not newly posted.
+- "New" means new to this tool, not newly posted. The example settings use no date filter,
+  so the first runs also find older jobs.
 
 ### What the workbook hides
 
@@ -130,7 +268,7 @@ how many leads were hidden and why.
 | Command | Costs searches? | What it does |
 | --- | --- | --- |
 | `preview` | no | Shows the planned queries and the monthly schedule; writes `results/search_plan.html`/`.csv`. |
-| `run` | yes, up to `per_run` (16) | Searches the most overdue queries and updates the workbook. |
+| `run` | yes, up to `per_run` (16 in the example) | Searches the most overdue queries and updates the workbook. |
 | `refresh` | no | Re-reads Status/Note, checks new job pages, re-applies the filters, rewrites the workbook. Use it after editing filters. |
 | `refresh --recheck` | no | Also opens every job page again, to find jobs closed since. |
 | `sweep` | yes, one per query | Searches every enabled query once and writes `results/query_report_<date>_<time>.xlsx`: what each query returned, with a Google link for a manual check. Use it to tune titles and platforms. |
@@ -144,17 +282,56 @@ Run them as `uv run job-search-robot <command>`. Useful options:
 
 `uv run job-search-robot <command> --help` lists them all.
 
-## The search budget
+## Search limits and getting more searches
 
-- One search is one Google results page (about 10 results) and costs one SerpApi credit.
-  The free plan gives 250 searches a month and at most 50 an hour.
-- The tool counts every search in `data/history.sqlite3`. It stops at `monthly_limit`
-  and `per_hour`, and each run prints "used X of 250 this month".
-- Each run searches the most overdue queries first, up to `per_run`. If the full
-  schedule needs more than the monthly limit, `preview` warns you; turn off platforms or
-  families, or raise `revisit_days`.
-- Identical searches within an hour are served from SerpApi's cache and are free.
-  Failed searches aren't charged.
+**By default the tool is set up for SerpApi's free plan: 250 searches a month, 50 an hour.**
+
+- One search is one Google results page (about 10 results).
+- The tool counts every search in `data/history.sqlite3`, and each run prints "used X of 250
+  this month". At `monthly_limit` or `per_hour` it stops searching. The monthly count restarts
+  on the 1st of the month (UTC). When a limit stops or shortens a run, the tool says so at
+  the end: which limit, how many searches were made, and what to do next. `preview` warns you
+  before a run would be cut short.
+- Each run searches the most overdue queries first and **spends up to `per_run`, even on
+  queries that aren't due yet**. So the monthly cost is about `per_run` × the number of
+  runs: 16 × 15 runs (every 2 days) = 240.
+- `preview` also estimates what the `revisit_days` schedule needs and warns when that is
+  over the monthly limit. To fit, turn off platforms or families, or raise `revisit_days`.
+- Identical searches within an hour are served from SerpApi's cache and are free, though
+  the tool's own counter still counts them. Failed searches aren't charged.
+- SerpApi keeps its own count, and its month may start on a different day. Your SerpApi
+  dashboard has the real number of searches left.
+
+### Need more searches?
+
+There are two ways:
+
+- **Pay for a bigger plan.** See [SerpApi pricing](https://serpapi.com/pricing); paid plans
+  start at 1,000 searches a month.
+- **Use another SerpApi key** that has searches left, for example from another account.
+  [SerpApi's terms](https://serpapi.com/legal) let it limit or refuse service, so check that
+  your use fits them.
+
+Then update your local files. The limits in your settings don't change by themselves:
+
+1. If the key changed, replace it in `local.env.yaml`. If you set a `SERPAPI_API_KEY`
+   environment variable, change it there, because it wins over the file.
+2. Raise `monthly_limit` in `sources/search.toml`. **The tool's counter doesn't know about
+   keys:** it counts every search made this calendar month. For example, after 173 searches
+   on one key, a new key with 250 searches needs `monthly_limit = 423`.
+3. Set `per_hour` to your plan's hourly limit, shown on the pricing page.
+4. Raise `per_run` so that `per_run` × runs a month stays within the limit. A run searches
+   each enabled query at most once, so also turn on more families or platforms if you want
+   it to use the extra searches.
+5. Run `uv run job-search-robot preview` to check the new plan.
+
+For example, on a 1,000-search plan with a run every 2 days:
+
+```toml
+[budget]
+monthly_limit = 1000
+per_run = 60             # 60 x 15 runs = 900 a month
+```
 
 ## Files the tool writes
 
@@ -186,8 +363,8 @@ All of these are private and git-ignored.
 - SerpApi often returns Google redirect links (`google.com/goto?url=...`) instead of page
   addresses. For results that Google shows on the searched platform, the tool asks Google
   where the link leads (one free request each, no searches used). Google sometimes refuses
-  links right after a search, so those are tried once more after all searches (at least a
-  minute later); the run prints how many, and the `sweep` report shows why any still failed.
+  links right after a search, so those get two more tries after all searches (about 1 and 5
+  minutes after their search, so a run with refused links takes longer); the run prints how many, and the `sweep` report shows why any still failed.
 - Results on other sites are dropped. The `sweep` report shows, per query, how many were
   dropped and the first of them under Examples.
 - Google picks up new postings with a delay, and the search sees only what Google has indexed.

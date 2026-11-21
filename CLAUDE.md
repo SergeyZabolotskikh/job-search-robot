@@ -66,7 +66,7 @@ The repository is shared; each user's personal files stay on their machine (git-
 | serpapi.py | SerpApi client; errors never echo the key |
 | urls.py | Canonical URLs and the stable lead identity per platform (the basis of "seen before") |
 | store.py | SQLite memory: results, searches (counter), leads (Status/Note), page_checks, identity_aliases, query_outcomes |
-| collector.py | One run: import Status/Note, search breadth-first, follow Google redirect links (second try after the searches), record outcomes, check pages, publish |
+| collector.py | One run: import Status/Note, search breadth-first, follow Google redirect links (two more tries after the searches), record outcomes, check pages, publish |
 | verify.py | Job page check: Comeet `POSITION_DATA`, Greenhouse `job__location` / embedded copy, schema.org JobPosting (JSON-LD or microdata: SmartRecruiters); Workday from the address, never requested; Google redirect links → page address |
 | filters.py | Hide rules (excluded titles, careers pages, closed, abroad) and duplicate detection |
 | workbook.py | The Excel workbook; text is never written as a formula; atomic save |

@@ -244,6 +244,7 @@ class ProviderTests(unittest.TestCase):
                 self.assertNotIn("fixture-secret", str(caught.exception))
                 if isinstance(failure, HTTPError):
                     self.assertTrue(caught.exception.fatal)
+                    self.assertTrue(caught.exception.quota)
 
     def test_empty_google_response_is_not_a_provider_failure(self):
         self.assertEqual(self.call({"error": "Google hasn't returned any results for this query."}), {"organic_results": []})
@@ -429,7 +430,7 @@ class SearchFlowTests(unittest.TestCase):
             return ("https://job-boards.greenhouse.io/fixture/jobs/555", "") if url == goto else (None, "HTTP 400")
 
         summary, _ = self.run_search([page(results), page([])], resolve=resolve)
-        self.assertEqual(asked, [goto, lost, lost])  # only platform links; a failed one is tried once more
+        self.assertEqual(asked, [goto, lost, lost, lost])  # only platform links; a failed one gets two more tries
         self.assertEqual(summary["unique_results"], 1)
         self.assertTrue(self.read_sheet()[0]["Link"].endswith("/jobs/555"))
         memory = app.ResultStore(self.history)
@@ -461,6 +462,24 @@ class SearchFlowTests(unittest.TestCase):
             self.assertEqual(memory.latest_outcomes()[self.queries[0].key]["on_platform"], 1)
         finally:
             memory.close()
+
+    def test_google_links_refused_twice_get_a_last_try(self):
+        # Google answered HTTP 200 instead of a redirect at the first two tries, then followed the link.
+        late = "https://www.google.com/goto?url=CAESlater"
+        results = [{"title": "Software Architect 558", "link": late, "snippet": "Synthetic.",
+                    "displayed_link": "https://job-boards.greenhouse.io › fixture › jobs"}]
+        tries = []
+
+        def resolve(url):
+            tries.append(url)
+            return ("https://job-boards.greenhouse.io/fixture/jobs/558", "") if len(tries) == 3 \
+                else (None, "HTTP 200, no redirect")
+
+        summary, client = self.run_search([page(results), page([])], resolve=resolve)
+        self.assertEqual(tries, [late, late, late])
+        self.assertEqual(len(client.calls), 2)  # the extra tries cost no search
+        self.assertEqual(summary["unique_results"], 1)
+        self.assertEqual(summary["google_links"], {"retried": 1, "followed_on_retry": 1, "failed": {}})
 
     def test_resolve_redirect_reads_the_location_header(self):
         headers = http.client.HTTPMessage()
@@ -816,6 +835,58 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(len(verdicts), len(all_queries))
         self.assertNotIn("not searched yet", verdicts)
         self.assertIn("no platform links (see Examples)", verdicts)   # comeet queries got greenhouse links
+
+
+class LimitNoticeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        root = Path(self.temp.name)
+        self.history, self.output = root / "data" / "history.sqlite3", root / "results"
+        self.search = root / "search.toml"
+        self.search.write_text(SEARCH.read_text(encoding="utf-8").replace("monthly_limit = 250", "monthly_limit = 2"),
+                               encoding="utf-8")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def main(self, command, responses=()):
+        fake, out, err = FakeClient(responses), io.StringIO(), io.StringIO()
+        args = [command, "--positions", str(POSITIONS), "--search-config", str(self.search), "--history", str(self.history),
+                "--output", str(self.output), "--env-file", str(Path(self.temp.name) / "missing.yaml")]
+        with patch.object(cli, "SerpApiClient", return_value=fake), patch.object(cli, "fetch_page", fake_pages({})), \
+                patch.object(serpapi, "urlopen", side_effect=AssertionError("network")), \
+                patch.dict("os.environ", {"SERPAPI_API_KEY": "fixture-secret"}), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = app.main(args)
+        return code, fake, out.getvalue(), err.getvalue()
+
+    def test_user_is_told_when_the_monthly_limit_is_reached(self):
+        code, _, out, _ = self.main("preview")
+        self.assertEqual(code, 0)
+        self.assertIn("MONTHLY SEARCH LIMIT NEAR: only 2 of 2", out)        # warned before spending
+        code, fake, out, _ = self.main("run", [page([]), page([])])
+        self.assertEqual((code, len(fake.calls)), (0, 2))
+        self.assertIn("MONTHLY SEARCH LIMIT REACHED: 2 of 2", out)
+        self.assertIn("restarts on", out)
+        self.assertIn("Need more searches?", out)
+        code, fake, _, err = self.main("run")                               # next run: no search, same message
+        self.assertEqual((code, fake.calls), (1, []))
+        self.assertIn("MONTHLY SEARCH LIMIT REACHED", err)
+
+    def test_user_is_told_when_serpapi_refuses_a_search(self):
+        code, fake, out, _ = self.main("run", [app.ProviderError("out of searches", fatal=True, quota=True)])
+        self.assertEqual((code, len(fake.calls)), (2, 1))
+        self.assertIn("SERPAPI SEARCH LIMIT", out)
+        self.assertIn("made 0 of", out)
+
+    def test_notice_names_the_limit_that_applies(self):
+        settings = app.load_settings(POSITIONS, SEARCH)                     # 250 a month, 50 an hour
+        self.assertEqual(app.limit_notice(10, 10, settings, 16, 16, after=True), "")
+        self.assertIn("HOURLY SEARCH LIMIT", app.limit_notice(10, 50, settings, 16, 4, after=True))
+        self.assertIn("HOURLY SEARCH LIMIT", app.limit_notice(10, 45, settings, 16, 5))
+        self.assertIn("only 10 of 250", app.limit_notice(240, 16, settings, 16, 16, after=True))
+        december = datetime(2026, 12, 31, tzinfo=timezone.utc)
+        self.assertIn("restarts on 2027-01-01", app.limit_notice(250, 0, settings, 16, 0, after=True, now=december))
 
 
 if __name__ == "__main__":

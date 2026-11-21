@@ -16,7 +16,7 @@ scheduling, and platform (ATS) APIs.
 | Topic | Decision |
 | --- | --- |
 | Search source | Google only, through SerpApi |
-| Budget | SerpApi free plan: 250 searches/month, at most 50/hour; cached (≤ 1 h) and failed searches are not counted. Up to `per_run` searches per run (example 16; one per title group and platform). The tool counts every search and stops at the limits |
+| Budget | SerpApi free plan: 250 searches/month, at most 50/hour; cached (≤ 1 h) and failed searches are not counted. Up to `per_run` searches per run (example 16; one per title group and platform). The tool counts every search, stops at the limits, and tells the user which limit (monthly, hourly or SerpApi's own) stopped or shortened a run |
 | Inputs | `sources/positions.toml` and `sources/search.toml`, private to each user (git-ignored), copied from the tracked `*.example.toml` files |
 | Tracks | Each role family belongs to a track; the workbook shows the track's label, so the user knows which CV to send. The example has `management` and `ic` |
 | Memory | SQLite `data/history.sqlite3`: the source of truth for "seen before", the user's Status/Note, page checks and the search counter |
@@ -37,16 +37,18 @@ Measured with live searches:
 - **Short queries**: at most 20 words. 14 words were honoured; 32 words made Google drop `site:`.
   Titles are packed into as few queries as fit.
 - **Scheduling**: each family priority has a revisit interval (`budget.revisit_days`, default
-  2/4/8 days). Each run searches the most overdue queries first, up to `per_run`. If the monthly
+  2/4/8 days). Each run searches the most overdue queries first and spends up to `per_run`, even
+  on queries not due yet, so the monthly cost is about `per_run` x runs. If the schedule's monthly
   demand exceeds the limit, everything is revisited proportionally less often; `preview` prints
   the demand.
-- A "past week" date filter keeps results fresh; one page per query.
+- No date filter by default (`freshness = "any"`): with a "month" filter, Google ignored `site:`
+  in 20 of 20 test searches. One page per query.
 - SerpApi often returns Google redirect links (`google.com/goto?url=...`); the page address
   shows only in `displayed_link`. Many early "Google ignored `site:`" verdicts were probably
   these links (not checked: dropped links weren't saved then). When `displayed_link` is on the query's platform, the tool reads the
-  redirect's `Location` with one plain HTTP request (no credits). Google once refused results
-  7-10 of each fresh search but followed the same links minutes later, so failed links are tried
-  once more after all searches, at least 60 s after their own. Results not on the platform
+  redirect's `Location` with one plain HTTP request (no credits). Google refused some
+  links right after a search, and some still after a minute, but followed the same links minutes
+  later, so failed links get two more tries after all searches, 60 s and 5 minutes after their own. Results not on the platform
   are dropped. `sweep` measures this per query and lists the first dropped addresses, and
   every search's outcome is stored (`query_outcomes`).
 

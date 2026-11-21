@@ -18,10 +18,14 @@
 #   id        stable key (letters, digits, _), used in results; don't rename casually
 #   name      readable name, shown in the workbook
 #   track     a track id from [tracks] below
-#   priority  1, 2 or 3: how often it is searched (see budget.revisit_days in search.toml)
+#   priority  1, 2 or 3: how soon it is due again (see budget.revisit_days in search.toml)
 #   enabled   false = kept here for reference, never searched
 #   titles    search phrases (no quotation marks inside)
 #   notes     optional: what to check in a posting before applying
+#
+# The enabled families below fit SerpApi's free plan (250 searches a month) on 5 platforms.
+# Each enabled family costs one search per platform per visit, so to turn one on, turn another
+# off. `preview` shows whether the schedule still fits.
 
 [tracks.management]
 label = "Management (EM CV)"
@@ -46,8 +50,7 @@ name = "Team lead (people)"
 track = "management"
 priority = 1
 enabled = true
-titles = ["Software Team Lead", "Backend Team Lead", "R&D Team Lead", "Development Team Lead",
-          "Software Team Leader", "Backend Team Leader", "R&D Team Leader"]
+titles = ["Software Team Lead", "R&D Team Lead", "Software Team Leader", "R&D Team Leader"]
 notes = "Israeli postings often say 'Team Leader'. Check the stack."
 
 [[family]]
@@ -56,8 +59,7 @@ name = "Group manager / group lead"
 track = "management"
 priority = 2
 enabled = true
-titles = ["Engineering Group Manager", "R&D Group Manager", "Development Group Manager",
-          "Engineering Group Lead", "R&D Group Leader"]
+titles = ["Engineering Group Manager", "R&D Group Manager", "Development Group Manager", "R&D Group Leader"]
 notes = "Usually means managing team leads."
 
 [[family]]
@@ -84,7 +86,7 @@ notes = "Disabled example: enable it if it fits you."
 id = "software_architect"
 name = "Software architect"
 track = "ic"
-priority = 2
+priority = 3
 enabled = true
 titles = ["Software Architect", "Backend Architect", "Software Systems Architect"]
 notes = "Check whether it is hands-on and which stack."
@@ -94,7 +96,7 @@ id = "staff_principal"
 name = "Staff / principal engineer"
 track = "ic"
 priority = 2
-enabled = true
+enabled = false          # off to fit the free plan
 titles = ["Staff Engineer", "Staff Software Engineer", "Staff Backend Engineer",
           "Principal Engineer", "Principal Software Engineer", "Principal Backend Engineer"]
 notes = "Expectations vary by company."
@@ -104,7 +106,7 @@ id = "tech_lead"
 name = "Tech lead"
 track = "ic"
 priority = 2
-enabled = true
+enabled = false          # off to fit the free plan
 titles = ["Tech Lead", "Technical Lead", "Technical Leader"]
 notes = "Some 'Tech Lead' postings are people-management roles."
 
@@ -113,6 +115,6 @@ id = "solution_architect"
 name = "Solution / integration architect"
 track = "ic"
 priority = 3
-enabled = true
+enabled = false          # off to fit the free plan
 titles = ["Solution Architect", "Solutions Architect", "Technical Architect", "Integration Architect"]
 notes = "Watch for presales roles with a sales quota."

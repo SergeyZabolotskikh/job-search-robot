@@ -16,11 +16,13 @@ class ConfigError(ValueError):
 
 
 class ProviderError(Exception):
-    """A search provider request failed. `fatal` stops the whole run (auth, quota)."""
+    """A search provider request failed. `fatal` stops the whole run (auth, quota);
+    `quota` means the provider refused because of the account's search limit."""
 
-    def __init__(self, message: str, *, fatal: bool = False):
+    def __init__(self, message: str, *, fatal: bool = False, quota: bool = False):
         super().__init__(message)
         self.fatal = fatal
+        self.quota = quota
 
 
 def utc_now() -> str:

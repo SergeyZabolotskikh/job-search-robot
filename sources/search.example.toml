@@ -4,17 +4,19 @@
 # The tool reads search.toml on every run. Run `uv run job-search-robot preview` after editing.
 
 [budget]
-monthly_limit = 250      # SerpApi free plan: 250 searches/month
-per_run = 16             # ~15 runs/month (every 2 days) x 16 = 240
+monthly_limit = 250      # SerpApi free plan: 250 searches/month. For more, see "Need more searches?" in the README
+per_run = 16             # each run spends up to this many: ~15 runs/month (every 2 days) x 16 = 240
 pages_per_query = 1      # single-platform queries return few results; 1 page is enough
 max_query_words = 20     # longer queries make Google drop site: (measured: 14 words kept, 32 dropped)
-revisit_days = [2, 4, 8] # how often to search a query, by family priority 1, 2, 3 (days)
+revisit_days = [2, 4, 8] # when a query is due, by family priority 1, 2, 3 (days); most overdue go first
 per_hour = 50            # SerpApi free plan throughput: 50 searches per hour
 
 [google]
 country = "il"
 language = "en"
-freshness = "week"       # only pages Google indexed recently: "day", "week", "month" or "any"
+freshness = "any"        # "any" = no date filter (recommended); or "day", "week", "month".
+                         # With a "month" filter, Google ignored site: in 20 of 20 test searches and
+                         # showed general pages; the same kind of search without a filter found jobs.
 timeout_seconds = 30
 
 # Terms OR-ed into every query. Each word costs query length, and "Israel" already
@@ -31,7 +33,9 @@ name = "Central"
 enabled = true
 cities = ["Tel Aviv", "Tel-Aviv", "Ramat Gan", "Givatayim", "Herzliya", "Herzlia", "Petah Tikva",
           "Petach Tikva", "Petah Tiqva", "Bnei Brak", "Holon", "Bat Yam", "Or Yehuda", "Airport City",
-          "Yehud", "Rishon LeZion", "Rishon Lezion"]
+          "Yehud", "Rishon LeZion", "Rishon Lezion", "Kiryat Ono", "Qiryat Ono", "Kiriat Ono",
+          "Ramat HaSharon", "Ramat Ha-Sharon", "Givat Shmuel", "Giv'at Shmuel", "Ganei Tikva", "Ganey Tikva",
+          "Azor", "Savyon", "Kfar Shmaryahu", "Kfar Shemaryahu"]
 
 [[region]]
 name = "Sharon"
@@ -42,7 +46,10 @@ cities = ["Raanana", "Ra'anana", "Kfar Saba", "Hod Hasharon", "Netanya", "Rosh H
 [[region]]
 name = "North"
 enabled = true
-cities = ["Haifa", "Yokneam", "Yoqneam", "Caesarea", "Nazareth", "Migdal HaEmek", "Matam"]
+cities = ["Haifa", "Yokneam", "Yoqneam", "Caesarea", "Nazareth", "Migdal HaEmek", "Matam",
+          "Tirat HaCarmel", "Tirat Ha-Carmel", "Tirat Carmel", "Hadera", "Or Akiva", "Or Aqiva",
+          "Zichron Yaakov", "Zikhron Yaakov", "Zichron Ya'akov", "Zikhron Ya'akov", "Binyamina",
+          "Pardes Hanna", "Pardes Hana", "Karkur"]
 
 [[region]]
 name = "Jerusalem"
@@ -76,7 +83,7 @@ enabled = true
 [[platform]]
 name = "Lever"
 site = "jobs.lever.co"
-enabled = true
+enabled = false          # supported; off because tests found no Israeli management jobs here
 
 [[platform]]
 name = "Ashby"
@@ -86,18 +93,18 @@ enabled = true
 [[platform]]
 name = "Workable"
 site = "apply.workable.com"
-enabled = true
+enabled = false          # supported; off because few Israeli jobs were found and its pages can't be read
 
 [[platform]]
 name = "SmartRecruiters"
 site = "jobs.smartrecruiters.com"
-enabled = false          # supported: location, work mode and posting date from the job page
+enabled = true           # location, work mode and posting date come from the job page
 
 [[platform]]
 name = "Workday"
 site = "myworkdayjobs.com"
-enabled = false          # supported, but Workday refuses page requests: the location comes from the
-                         # job address; open/closed and the posting date stay unknown
+enabled = true           # Workday refuses page requests: the location comes from the job address;
+                         # open/closed and the posting date stay unknown
 
 [[platform]]
 name = "BambooHR"

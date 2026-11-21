@@ -21,9 +21,9 @@ from .verify import check_page, fetch_page, resolve_redirect
 from .workbook import ensure_writable, mentions_israel, read_notes, write_workbook
 
 PAGE_PAUSE_SECONDS = 1.0
-# Google refused some redirect links right after a search (results 7-10 of 10) but followed the same
-# links minutes later, so failed links are tried once more after the searches, this long after theirs.
-RETRY_AFTER_SECONDS = 60
+# Google refused some redirect links right after a search, and some still after a minute, but followed
+# the same links a few minutes later. So failed links get two more tries, this long after their search.
+RETRY_AFTER_SECONDS = (60, 300)
 GOOGLE_REDIRECT = re.compile(r"^https?://(www\.)?google\.[a-z.]+/(goto|url)\?", re.I)
 
 
@@ -157,6 +157,7 @@ def run_search(queries: list[SearchQuery], settings: Settings, client, *, histor
                 store.record_search(run_id, query, start, "error")
                 state["status"] = "error"
                 summary["errors"].append({"query": query.text, "message": str(exc)})
+                summary["provider_limit"] = summary.get("provider_limit", False) or exc.quota
                 if exc.fatal:
                     fatal = True
                     break
@@ -177,21 +178,31 @@ def run_search(queries: list[SearchQuery], settings: Settings, client, *, histor
             else:
                 state["status"] = "pending_next_page"
                 pending.append((index, next_start))
-        while retry:
-            index, start, payload, results, more_pages, searched_at = retry[0]
-            if resolve is resolve_redirect:
-                time.sleep(max(PAGE_PAUSE_SECONDS, RETRY_AFTER_SECONDS - (time.monotonic() - searched_at)))
-            before = len(failed_links(results))
-            print(f"Trying {before} Google link(s) of query {index + 1} again", flush=True)
-            results = unwrap_links(results, queries[index], resolve, retry=True)
-            links["retried"] += before
-            links["followed_on_retry"] += before - len(failed_links(results))
-            retry.popleft()
-            keep((index, start, payload, results, more_pages, searched_at))
+        for attempt, wait in enumerate(RETRY_AFTER_SECONDS):
+            if attempt and retry:
+                still = sum(len(failed_links(found[3])) for found in retry)
+                print(f"{still} Google link(s) still refused: last try about {wait // 60} minutes after their search.",
+                      flush=True)
+            for _ in range(len(retry)):
+                index, start, payload, results, more_pages, searched_at = retry[0]
+                if resolve is resolve_redirect:
+                    time.sleep(max(PAGE_PAUSE_SECONDS, wait - (time.monotonic() - searched_at)))
+                before = len(failed_links(results))
+                print(f"Trying {before} Google link(s) of query {index + 1} again", flush=True)
+                results = unwrap_links(results, queries[index], resolve, retry=True)
+                if attempt == 0:
+                    links["retried"] += before   # each link counted once, however many tries it needs
+                links["followed_on_retry"] += before - len(failed_links(results))
+                retry.popleft()
+                found = (index, start, payload, results, more_pages, searched_at)
+                if failed_links(results) and attempt < len(RETRY_AFTER_SECONDS) - 1:
+                    retry.append(found)
+                else:
+                    keep(found)
     except KeyboardInterrupt:
         interrupted = True
     finally:
-        while retry:  # interrupted or stopped: store what was found, without the second try
+        while retry:  # interrupted or stopped: store what was found, without the remaining tries
             keep(retry.popleft())
         remaining_status = "interrupted" if interrupted else "stopped_after_provider_error" if fatal else "request_budget"
         for state in summary["queries"]:

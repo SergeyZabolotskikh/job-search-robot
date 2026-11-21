@@ -30,6 +30,8 @@ COMMANDS = (
     ("sweep", "Search every enabled query once (page 1) and write a per-query outcome report"),
     ("refresh", "Free: re-read your Status/Note, check new job pages, re-apply the filters, rewrite the workbook"),
 )
+MORE_SEARCHES = ('To search more now: use another SerpApi key or a bigger plan, then raise monthly_limit '
+                 '(README: "Need more searches?").')
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -96,6 +98,29 @@ def budget_left(history: History, settings: Settings) -> int:
     return max(0, min(settings.monthly_limit - history.month_used, settings.per_hour - history.hour_used))
 
 
+def limit_notice(month_used: int, hour_used: int, settings: Settings, wanted: int, done: int, *,
+                 after: bool = False, now: datetime | None = None) -> str:
+    """What to tell the user when a search limit stops or shortens a run; "" when none applies.
+    `wanted` searches were asked for and `done` were made (after=True) or can be made (after=False)."""
+    now = now or datetime.now(timezone.utc)
+    limit = settings.monthly_limit
+    month_left, hour_left = limit - month_used, settings.per_hour - hour_used
+    what = f"This run searched {done} of {wanted}." if after else f"The next run can search {done} of {wanted}."
+    if month_left <= 0:
+        restart = (now.replace(day=1) + timedelta(days=32)).replace(day=1)
+        return (f"MONTHLY SEARCH LIMIT REACHED: {month_used} of {limit} searches used. {what}\n"
+                f"  The tool's count restarts on {restart:%Y-%m-%d} (UTC). {MORE_SEARCHES}")
+    if done < wanted and not after and month_left <= done:
+        return f"MONTHLY SEARCH LIMIT NEAR: only {month_left} of {limit} searches left. {what}\n  {MORE_SEARCHES}"
+    if done < wanted and hour_left <= (0 if after else done):
+        return (f"HOURLY SEARCH LIMIT: {hour_used} of {settings.per_hour} used in the last hour. {what}\n"
+                "  Run again in up to an hour for the rest.")
+    if after and month_left < wanted:
+        return (f"MONTHLY SEARCH LIMIT NEAR: only {month_left} of {limit} searches left, "
+                f"so the next run will be shorter.\n  {MORE_SEARCHES}")
+    return ""
+
+
 def print_plan(queries, planned, settings) -> None:
     position = {q.key: i + 1 for i, q in enumerate(planned)}
     print(f"{'run':>4}  {'pri':>3}  {'words':>5}  {'platform':<11} family / titles")
@@ -134,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "sweep":
             planned, eligible = sweep_plan(queries, history, settings, args.since_hours, cap)
             pages, freshness = 1, args.freshness or "any"
+            wanted, can_search = (eligible if cap is None else min(eligible, cap)), len(planned)
             print_plan(queries, planned, settings)
             print(f"\nSweep: {eligible} of {len(queries)} queries not searched in the last {args.since_hours} h; "
                   f"this sweep searches {len(planned)} ({limits}). Freshness: {freshness}.")
@@ -142,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
             budget = min(per_run, budget_left(history, settings))
             planned = plan_run(queries, budget, history.last_run, settings.revisit_days)
             pages, freshness = settings.pages_per_query, args.freshness or settings.freshness
+            wanted = min(per_run, len(queries) * pages)
+            can_search = min(budget, wanted)
             print_plan(queries, planned, settings)
             demand = monthly_demand(queries, settings.revisit_days, settings.pages_per_query)
             days = "/".join(str(d) for d in settings.revisit_days)
@@ -157,14 +185,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "preview":
             write_preview(queries, planned, settings, output)
             print(f"Preview saved: {output / 'search_plan.html'} (no API requests made)")
+            notice = limit_notice(history.month_used, history.hour_used, settings, wanted, can_search)
+            if notice:
+                print(f"\n{notice}")
             return 0
         if not planned:
             if args.command == "sweep" and eligible == 0:
                 path = write_report(output, queries, history_path, settings, set())
                 print(f"Nothing left to sweep. Report: {path}")
                 return 0
-            print("No searches left in the monthly or hourly limit. Try again later "
-                  "(SerpApi free plan: 50 searches per hour).", file=sys.stderr)
+            print(limit_notice(history.month_used, history.hour_used, settings, wanted, 0, after=True), file=sys.stderr)
             return 1
         workbook = output / "job_leads.xlsx"
         ensure_writable(workbook)  # before asking for the key or spending credits
@@ -182,12 +212,22 @@ def main(argv: list[str] | None = None) -> int:
             path = write_report(output, queries, history_path, settings, {q.key for q in planned})
             print(f"Query report: {path}")
             left = eligible - summary["requests_used"]
-            if left > 0:
+            if left > 0 and summary["searches_this_month"] < settings.monthly_limit and not summary.get("provider_limit"):
                 resume = datetime.now() + timedelta(hours=1)
-                print(f"{left} queries not searched yet (hourly/monthly limit). "
+                print(f"{left} queries not searched yet (hourly limit). "
                       f"Run `sweep` again after {resume:%H:%M} to finish.")
         if summary["errors"]:
             print(f'{len(summary["errors"])} search error(s). See {workbook.with_name("last_run.json")}.', file=sys.stderr)
+        if summary.get("provider_limit"):
+            made = summary["requests_used"] - len(summary["errors"])
+            notice = ("SERPAPI SEARCH LIMIT: SerpApi refused the search: this account has no searches left, or hit "
+                      f"a rate limit. This run made {made} of {wanted} searches.\n"
+                      f"  Check your SerpApi dashboard. {MORE_SEARCHES}")
+        else:
+            notice = limit_notice(summary["searches_this_month"], history.hour_used + summary["requests_used"],
+                                  settings, wanted, summary["requests_used"], after=True)
+        if notice:
+            print(f"\n{notice}")
         return 130 if summary["status"] == "interrupted" else 2 if summary["status"] == "partial" else 0
     except (ConfigError, OSError, sqlite3.Error) as exc:
         print(f"Error: {exc}", file=sys.stderr)

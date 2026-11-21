@@ -29,7 +29,8 @@ class SerpApiClient:
             if exc.code in (401, 403):
                 raise ProviderError("SerpApi rejected the API key or account permissions.", fatal=True) from None
             if exc.code in (402, 429):
-                raise ProviderError("SerpApi quota, billing, or rate limit reached. Check your account before rerunning.", fatal=True) from None
+                raise ProviderError("SerpApi quota, billing, or rate limit reached. Check your account before rerunning.",
+                                    fatal=True, quota=True) from None
             raise ProviderError(f"SerpApi returned HTTP {exc.code}. This request was not retried.") from None
         except (URLError, TimeoutError, OSError):
             # urllib exceptions can contain the full request URL and API key.
@@ -49,7 +50,7 @@ class SerpApiClient:
             if "api key" in message or "api_key" in message:
                 raise ProviderError("SerpApi rejected the API key.", fatal=True)
             if any(term in message for term in ("quota", "credit", "limit", "out of searches", "run out")):
-                raise ProviderError("SerpApi quota or account limit reached. Check your account.", fatal=True)
+                raise ProviderError("SerpApi quota or account limit reached. Check your account.", fatal=True, quota=True)
             raise ProviderError("SerpApi reported a search error. See your SerpApi dashboard for details.")
         metadata = payload.get("search_metadata", {})
         if isinstance(metadata, dict) and metadata.get("status") in ("Processing", "Error"):

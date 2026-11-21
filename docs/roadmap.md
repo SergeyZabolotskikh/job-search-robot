@@ -88,9 +88,9 @@ few jobs whose pages say "IL" instead of "Israel". Four other city groups found 
 
 **Idea.** An occasional (e.g. weekly) extra search per role group and platform with those cities and
 the two exclusions, instead of adding cities to every query. Needs "location groups" in the query
-builder. Before that, watch whether adding Haifa and Ramat Gan to the regular location terms
-(2026-11-18) keeps Google honouring `site:` (in the first run, three searches lost all platform
-results).
+builder. Haifa and Ramat Gan were added to the regular location terms on
+2026-11-18. Several searches lost their platform results that day, but the same searches worked on
+2026-11-21, so that looks like Google's day-to-day variation rather than the cities.
 
 ## 4. Other search services
 
