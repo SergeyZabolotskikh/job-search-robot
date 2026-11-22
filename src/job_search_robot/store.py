@@ -30,7 +30,7 @@ class ResultStore:
                 run_id TEXT NOT NULL, identity TEXT NOT NULL, query TEXT NOT NULL,
                 family_id TEXT NOT NULL, track TEXT NOT NULL,
                 PRIMARY KEY (run_id, identity, query));
-            -- One row per request sent to SerpApi: the monthly counter and query rotation.
+            -- One row per request sent to a search service: the monthly counter and query rotation.
             CREATE TABLE IF NOT EXISTS searches (
                 run_id TEXT NOT NULL, query TEXT NOT NULL, start INTEGER NOT NULL,
                 at_utc TEXT NOT NULL, outcome TEXT NOT NULL);
@@ -53,7 +53,18 @@ class ResultStore:
                 final_url TEXT NOT NULL, note TEXT NOT NULL);
             -- Old lead ids replaced when URL rules improved (so old workbook Lead IDs still match).
             CREATE TABLE IF NOT EXISTS identity_aliases (old TEXT PRIMARY KEY, new TEXT NOT NULL);
+            -- SerpApi's own numbers for a key, read before and after each run (free request).
+            CREATE TABLE IF NOT EXISTS account_checks (
+                at_utc TEXT NOT NULL, provider TEXT NOT NULL, account TEXT NOT NULL, plan TEXT NOT NULL,
+                monthly_price REAL NOT NULL, month_used INTEGER NOT NULL, plan_left INTEGER NOT NULL,
+                extra_credits INTEGER NOT NULL, renewal TEXT NOT NULL);
         """)
+        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(searches)")}
+        with self.connection:  # older memory files: their searches stay, with no account ("")
+            if "provider" not in columns:
+                self.connection.execute("ALTER TABLE searches ADD COLUMN provider TEXT NOT NULL DEFAULT 'serpapi'")
+            if "account" not in columns:
+                self.connection.execute("ALTER TABLE searches ADD COLUMN account TEXT NOT NULL DEFAULT ''")
         self.migrated = self.migrate_identities()
         self.restore_workday_places()
 
@@ -62,21 +73,59 @@ class ResultStore:
         with self.connection:
             self.connection.execute("INSERT INTO runs VALUES (?, ?, NULL)", (run_id, utc_now()))
 
-    def record_search(self, run_id: str, query: SearchQuery, start: int, outcome: str) -> None:
+    def record_search(self, run_id: str, query: SearchQuery, start: int, outcome: str, account: str = "",
+                      provider: str = "serpapi") -> None:
         with self.connection:
-            self.connection.execute("INSERT INTO searches VALUES (?, ?, ?, ?, ?)",
-                                    (run_id, query.key, start, utc_now(), outcome))
+            self.connection.execute(
+                "INSERT INTO searches (run_id, query, start, at_utc, outcome, provider, account) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)", (run_id, query.key, start, utc_now(), outcome, provider, account))
 
-    def searches_this_month(self, now: datetime | None = None) -> int:
-        """Requests sent since the 1st of the current month (UTC). Counted conservatively:
-        SerpApi does not charge failed searches, but we count every attempt."""
+    def save_account(self, account) -> None:
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO account_checks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (utc_now(), account.provider, account.account_id, account.plan, account.monthly_price,
+                 account.month_used, account.plan_left, account.extra_credits, account.renewal))
+
+    @staticmethod
+    def _month_start(now: datetime | None) -> str:
         now = now or datetime.now(timezone.utc)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds")
-        return self.connection.execute("SELECT COUNT(*) FROM searches WHERE at_utc >= ?", (month_start,)).fetchone()[0]
+        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds")
 
-    def searches_since(self, since: datetime) -> int:
-        return self.connection.execute("SELECT COUNT(*) FROM searches WHERE at_utc >= ?",
-                                       (since.isoformat(timespec="seconds"),)).fetchone()[0]
+    def searches_this_month(self, now: datetime | None = None, provider: str = "serpapi") -> int:
+        """One service's requests since the 1st of the current month (UTC), on any key. Counted
+        conservatively: failed or cached searches are not charged, but this counts every attempt."""
+        return self.connection.execute("SELECT COUNT(*) FROM searches WHERE at_utc >= ? AND provider = ?",
+                                       (self._month_start(now), provider)).fetchone()[0]
+
+    def searches_by_account(self, now: datetime | None = None) -> dict[str, int]:
+        """SerpApi requests sent this month per account; "" = sent before accounts were recorded."""
+        return {row[0]: row[1] for row in self.connection.execute(
+            "SELECT account, COUNT(*) FROM searches WHERE at_utc >= ? AND provider = 'serpapi' GROUP BY account",
+            (self._month_start(now),))}
+
+    def estimated_month_used(self, now: datetime | None = None) -> int:
+        """For preview (no network): SerpApi's count at its last check this month plus what was sent
+        since. Without a check this month, the tool's own count."""
+        month_start = self._month_start(now)
+        last = self.connection.execute("SELECT at_utc, month_used FROM account_checks WHERE at_utc >= ? "
+                                       "AND provider = 'serpapi' ORDER BY at_utc DESC, rowid DESC LIMIT 1",
+                                       (month_start,)).fetchone()
+        if last is None:
+            return self.searches_this_month(now)
+        return last["month_used"] + self.connection.execute(
+            "SELECT COUNT(*) FROM searches WHERE at_utc > ? AND provider = 'serpapi'", (last["at_utc"],)).fetchone()[0]
+
+    def last_search_at(self, provider: str = "serpapi") -> datetime | None:
+        value = self.connection.execute("SELECT MAX(at_utc) FROM searches WHERE provider = ?", (provider,)).fetchone()[0]
+        return datetime.fromisoformat(value) if value else None
+
+    def searches_since(self, since: datetime, account: str | None = None, provider: str = "serpapi") -> int:
+        """One service's searches. With `account`: that key's, plus those from before accounts were recorded."""
+        where, values = "at_utc >= ? AND provider = ?", [since.isoformat(timespec="seconds"), provider]
+        if account is not None:
+            where, values = where + " AND account IN (?, '')", values + [account]
+        return self.connection.execute(f"SELECT COUNT(*) FROM searches WHERE {where}", values).fetchone()[0]
 
     def record_outcome(self, run_id: str, query: SearchQuery, start: int, freshness: str, outcome: dict) -> None:
         with self.connection:

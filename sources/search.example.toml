@@ -10,6 +10,7 @@ pages_per_query = 1      # single-platform queries return few results; 1 page is
 max_query_words = 20     # longer queries make Google drop site: (measured: 14 words kept, 32 dropped)
 revisit_days = [2, 4, 8] # when a query is due, by family priority 1, 2, 3 (days); most overdue go first
 per_hour = 50            # SerpApi free plan throughput: 50 searches per hour
+allow_paid_plan = false  # false: run and sweep stop before searching on a priced SerpApi plan or bought Serper credits
 
 [google]
 country = "il"

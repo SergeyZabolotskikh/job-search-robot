@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 import types
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
@@ -17,7 +18,7 @@ from unittest.mock import patch
 
 from openpyxl import load_workbook
 
-from job_search_robot import cli, collector, common, config, queries, reports, serpapi, store, urls, workbook, localenv, filters, verify
+from job_search_robot import cli, collector, common, config, queries, reports, serpapi, serper, store, urls, usage, workbook, localenv, filters, verify
 
 POSITIONS = Path(__file__).parent / "fixtures" / "positions.toml"
 SEARCH = Path(__file__).parent / "fixtures" / "search.toml"
@@ -32,6 +33,9 @@ def setUpModule():
     global _NO_NETWORK
     _NO_NETWORK = [patch.object(verify, name, side_effect=AssertionError("network access in tests"))
                    for name in ("urlopen", "open_no_redirect")]
+    _NO_NETWORK += [patch.object(usage, "urlopen", side_effect=URLError("no network in tests")),
+                    patch.object(serper, "urlopen", side_effect=AssertionError("network access in tests")),
+                    patch.object(cli, "COUNT_WAITS", ()), patch.object(cli, "COUNT_SETTLE_SECONDS", 0)]  # no real waits
     for blocker in _NO_NETWORK:
         blocker.start()
 
@@ -55,16 +59,27 @@ def page(items=None, next_start=None):
 
 
 class FakeClient:
-    def __init__(self, responses):
+    """`used`, `left`, `price`: what SerpApi reports. `cached=True`: searches are not charged."""
+
+    def __init__(self, responses, used=0, left=1000, price=0.0, cached=False, account_id="fixture-account",
+                 provider="serpapi", bought=False):
         self.responses = list(responses)
         self.calls = []
+        self.used, self.left, self.price, self.cached, self.account_id = used, left, price, cached, account_id
+        self.provider, self.bought = provider, bought
 
     def search(self, query, start=0, tbs=""):
         self.calls.append((query, start))
         result = self.responses.pop(0)
         if isinstance(result, BaseException):
             raise result
+        if not self.cached:
+            self.used, self.left = self.used + 1, self.left - 1
         return result
+
+    def account(self):
+        return serpapi.Account(self.account_id, "Fixture Plan", self.price, self.used, self.left, extra_credits=500,
+                               provider=self.provider, bought_credits=self.bought)
 
 
 class ConfigTests(unittest.TestCase):
@@ -523,12 +538,15 @@ class SearchFlowTests(unittest.TestCase):
                 store.record_search("filler", self.queries[0], 0, "ok")
         finally:
             store.close()
-        args = ["run", "--positions", str(POSITIONS), "--search-config", str(SEARCH),
-                "--history", str(self.history), "--output", str(self.output / "results")]
+        args = ["run", "--positions", str(POSITIONS), "--search-config", str(SEARCH), "--history", str(self.history),
+                "--output", str(self.output / "results"), "--env-file", str(self.output / "missing.yaml")]
+        fake = FakeClient([], used=250, left=0)                  # SerpApi's own count is what blocks
         with patch.dict("os.environ", {"SERPAPI_API_KEY": "fixture-secret"}), \
+                patch.object(cli, "SerpApiClient", return_value=fake), \
                 patch.object(serpapi, "urlopen", side_effect=AssertionError("network")), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(app.main(args), 1)
+        self.assertEqual(fake.calls, [])
 
     def test_open_workbook_stops_before_any_search(self):
         self.run_search([page([item()]), page([])])
@@ -629,6 +647,17 @@ class PageCheckTests(unittest.TestCase):
         self.assertIs(check("Chicago-IL").in_israel, False)                              # IL is Illinois here
         self.assertIsNone(check("US-CA-Santa-Clara", "EM - Santa Clara or Israel").in_israel)  # may be in Israel too
         self.assertEqual((check("").status, check("").location, check("").in_israel), ("unknown", "", None))
+
+    def test_a_work_mode_alone_does_not_mean_abroad(self):
+        def greenhouse(location):
+            page = f'<div class="job__location"><svg></svg><div>{location}</div></div>'
+            return self.check(GREENHOUSE_JOB, "Greenhouse", {GREENHOUSE_JOB: (200, GREENHOUSE_JOB, page)}).in_israel
+        for location in ("Hybrid", "Remote", "On-site", "Remote / Hybrid"):
+            self.assertIsNone(greenhouse(location), location)      # no place named: the job stays visible
+        self.assertIs(greenhouse("Hybrid, Berlin"), False)         # a foreign place is still abroad
+        self.assertIs(greenhouse("Remote - United States"), False)
+        workday = "https://fixture.wd5.myworkdayjobs.com/en-US/External/job/Remote/EM_JR1"
+        self.assertIsNone(app.check_page(workday, "Workday", self.settings, fetch=None).in_israel)
 
 
 class HideRuleTests(unittest.TestCase):
@@ -849,13 +878,14 @@ class LimitNoticeTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def main(self, command, responses=()):
-        fake, out, err = FakeClient(responses), io.StringIO(), io.StringIO()
+    def main(self, command, responses=(), fake=None, extra=(), **account):
+        fake, out, err = fake or FakeClient(responses, **account), io.StringIO(), io.StringIO()
         args = [command, "--positions", str(POSITIONS), "--search-config", str(self.search), "--history", str(self.history),
-                "--output", str(self.output), "--env-file", str(Path(self.temp.name) / "missing.yaml")]
-        with patch.object(cli, "SerpApiClient", return_value=fake), patch.object(cli, "fetch_page", fake_pages({})), \
+                "--output", str(self.output), "--env-file", str(Path(self.temp.name) / "missing.yaml"), *extra]
+        with patch.object(cli, "SerpApiClient", return_value=fake), patch.object(cli, "SerperClient", return_value=fake), \
+                patch.object(cli, "fetch_page", fake_pages({})), \
                 patch.object(serpapi, "urlopen", side_effect=AssertionError("network")), \
-                patch.dict("os.environ", {"SERPAPI_API_KEY": "fixture-secret"}), \
+                patch.dict("os.environ", {"SERPAPI_API_KEY": "fixture-secret", "SERPER_API_KEY": "fixture-secret"}), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = app.main(args)
         return code, fake, out.getvalue(), err.getvalue()
@@ -869,9 +899,125 @@ class LimitNoticeTests(unittest.TestCase):
         self.assertIn("MONTHLY SEARCH LIMIT REACHED: 2 of 2", out)
         self.assertIn("restarts on", out)
         self.assertIn("Need more searches?", out)
-        code, fake, _, err = self.main("run")                               # next run: no search, same message
+        code, fake, _, err = self.main("run", used=2)                       # next run: no search, same message
         self.assertEqual((code, fake.calls), (1, []))
         self.assertIn("MONTHLY SEARCH LIMIT REACHED", err)
+
+    def use_limit(self, monthly):
+        self.search.write_text(SEARCH.read_text(encoding="utf-8").replace("monthly_limit = 250",
+                                                                          f"monthly_limit = {monthly}"), encoding="utf-8")
+
+    def test_a_paid_plan_stops_before_any_search(self):
+        self.use_limit(250)
+        code, fake, _, err = self.main("run", [page([])] * 6, price=75.0)
+        self.assertEqual((code, fake.calls), (1, []))
+        self.assertIn("NO SEARCH SENT", err)
+        self.assertEqual(self.main("account", price=75.0)[0], 1)
+        self.search.write_text(self.search.read_text(encoding="utf-8").replace(
+            "[budget]\n", "[budget]\nallow_paid_plan = true\n", 1), encoding="utf-8")
+        code, fake, _, _ = self.main("run", [page([])] * 6, price=75.0)     # only after the user allows it
+        self.assertEqual((code, len(fake.calls)), (0, 6))
+
+    def test_an_unclear_account_answer_stops_before_any_search(self):
+        answer = {"account_id": "a", "plan_monthly_price": 0, "this_month_usage": 1, "plan_searches_left": 9,
+                  "api_key": "fixture-secret", "account_email": "someone@example.com"}
+        kept = app.parse_account(answer)
+        self.assertEqual((kept.month_used, kept.plan_left), (1, 9))
+        self.assertNotIn("fixture-secret", repr(kept))                      # the key and email are not kept
+        self.assertNotIn("example.com", repr(kept))
+        for missing in ("account_id", "plan_monthly_price", "this_month_usage", "plan_searches_left"):
+            broken = {k: v for k, v in answer.items() if k != missing}
+            with self.assertRaises(app.ProviderError):
+                app.parse_account(broken)
+        self.use_limit(250)
+        fake = FakeClient([page([])])
+        fake.account = lambda: app.parse_account({"account_id": "a"})
+        with patch.object(cli, "SerpApiClient", return_value=fake), \
+                patch.dict("os.environ", {"SERPAPI_API_KEY": "fixture-secret"}), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = app.main(["run", "--positions", str(POSITIONS), "--search-config", str(self.search),
+                             "--history", str(self.history), "--output", str(self.output),
+                             "--env-file", str(Path(self.temp.name) / "missing.yaml")])
+        self.assertEqual((code, fake.calls), (1, []))
+
+    def test_a_run_never_goes_past_the_searches_left_on_the_plan(self):
+        self.use_limit(250)                                                 # extra credits exist but are not used
+        code, fake, out, _ = self.main("run", [page([])] * 6, used=248, left=2)
+        self.assertEqual((code, len(fake.calls)), (0, 2))
+        self.assertIn("MONTHLY SEARCH LIMIT REACHED: 250 of 250", out)
+
+    def test_cached_searches_do_not_use_up_the_budget(self):
+        self.use_limit(250)
+        code, fake, out, _ = self.main("run", [page([])] * 6, used=100, left=150, cached=True)
+        self.assertEqual((code, len(fake.calls)), (0, 6))
+        self.assertIn("SerpApi counted 0 of the 6 searches sent", out)
+        self.assertIn("Searches used this month: 100 of 250", out)
+
+    def test_a_quick_rerun_waits_for_serpapis_count_before_spending(self):
+        self.use_limit(250)
+        self.assertEqual(len(self.main("run", [page([])] * 2, left=2)[1].calls), 2)
+        stale = FakeClient([page([])] * 2, used=0, left=2)                  # the last 2 searches aren't counted yet
+
+        def count_arrives(_seconds):
+            stale.used, stale.left = 2, 0
+        with patch.object(cli, "COUNT_SETTLE_SECONDS", 60), patch.object(cli.time, "sleep", side_effect=count_arrives):
+            code, _, _, err = self.main("run", fake=stale)
+        self.assertEqual((code, stale.calls), (1, []))
+        self.assertIn("MONTHLY SEARCH LIMIT REACHED", err)
+
+    def test_the_count_is_read_again_until_it_shows_the_searches(self):
+        self.use_limit(250)
+        fake, reads = FakeClient([page([])] * 6, used=10, left=100), []
+        real = fake.account
+
+        def lagging():
+            reads.append(1)
+            return replace(real(), month_used=10, plan_left=100) if len(reads) == 2 else real()
+        fake.account = lagging
+        with patch.object(cli, "COUNT_WAITS", (0,)):
+            _, _, out, _ = self.main("run", fake=fake)
+        self.assertIn("SerpApi counted 6 of the 6 searches sent.", out)
+
+    def test_serper_searches_are_counted_apart_from_serpapi(self):
+        self.use_limit(250)
+        serper_run = {"extra": ("--source", "serper"), "provider": "serper", "account_id": "serper:fixture"}
+        code, fake, out, _ = self.main("run", [page([])] * 6, left=2495, **serper_run)
+        self.assertEqual((code, len(fake.calls)), (0, 6))
+        self.assertIn("Serper counted 6 of the 6 searches sent. Credits left: 2489.", out)
+        memory = app.ResultStore(self.history)
+        try:
+            self.assertEqual((memory.searches_this_month(), memory.searches_this_month(provider="serper")), (0, 6))
+        finally:
+            memory.close()
+
+    def test_serper_never_spends_past_its_credits_or_on_bought_credits(self):
+        self.use_limit(250)
+        serper_run = {"extra": ("--source", "serper"), "provider": "serper", "account_id": "serper:fixture"}
+        code, fake, _, err = self.main("run", [page([])] * 6, left=0, **serper_run)
+        self.assertEqual((code, fake.calls), (1, []))
+        self.assertIn("no credits left", err)
+        code, fake, _, err = self.main("run", [page([])] * 6, left=3000, bought=True, **serper_run)
+        self.assertEqual((code, fake.calls), (1, []))
+        self.assertIn("NO SEARCH SENT", err)
+        code, fake, _, _ = self.main("run", [page([])] * 6, left=1, **serper_run)
+        self.assertEqual((code, len(fake.calls)), (0, 1))
+
+    def test_searches_are_counted_per_key_and_old_rows_are_kept(self):
+        self.use_limit(250)
+        self.history.parent.mkdir(parents=True)
+        old = sqlite3.connect(self.history)                                 # a memory file from before this change
+        with old:
+            old.execute("CREATE TABLE searches (run_id TEXT NOT NULL, query TEXT NOT NULL, start INTEGER NOT NULL, "
+                        "at_utc TEXT NOT NULL, outcome TEXT NOT NULL)")
+            old.execute("INSERT INTO searches VALUES ('old', 'q', 0, ?, 'ok')", (common.utc_now(),))
+        old.close()
+        self.main("run", [page([])] * 6, account_id="key-a")
+        code, _, out, _ = self.main("account", account_id="key-b")
+        self.assertEqual(code, 0)
+        self.assertIn("This key: 0", out)
+        self.assertIn("Before keys were recorded: 1", out)
+        self.assertIn("Other keys: 6", out)
+        self.assertNotIn("key-a", out)                                      # account ids are not printed
 
     def test_user_is_told_when_serpapi_refuses_a_search(self):
         code, fake, out, _ = self.main("run", [app.ProviderError("out of searches", fatal=True, quota=True)])
@@ -887,6 +1033,97 @@ class LimitNoticeTests(unittest.TestCase):
         self.assertIn("only 10 of 250", app.limit_notice(240, 16, settings, 16, 16, after=True))
         december = datetime(2026, 12, 31, tzinfo=timezone.utc)
         self.assertIn("restarts on 2027-01-01", app.limit_notice(250, 0, settings, 16, 0, after=True, now=december))
+
+
+class SerperClientTests(unittest.TestCase):
+    def client(self):
+        return serper.SerperClient("fixture-secret", "il", "en", 12)
+
+    def answer(self, payload):
+        return patch.object(serper, "urlopen", return_value=io.BytesIO(json.dumps(payload).encode()))
+
+    def test_search_request_and_answer_shape(self):
+        found = [item(str(i)) for i in range(10)]
+        with self.answer({"organic": found, "credits": 1}) as mocked:
+            payload = self.client().search("site:greenhouse.io architect", 10)
+        request = mocked.call_args.args[0]
+        body = json.loads(request.data)
+        self.assertEqual((request.get_method(), request.full_url), ("POST", serper.SEARCH_URL))
+        self.assertEqual((body["page"], body["num"], body["gl"], body["hl"]), (2, 10, "il", "en"))
+        self.assertNotIn("fixture-secret", request.full_url + request.data.decode())   # the key goes in a header only
+        self.assertEqual(payload["organic_results"], found)
+        self.assertEqual(app.next_offset(payload, 10), 20)
+        with self.answer({"organic": found[:3]}):
+            self.assertIsNone(app.next_offset(self.client().search("q"), 0))
+
+    def test_google_redirect_links_are_marked_for_following(self):
+        link = "https://www.google.com/goto?url=CAES"
+        with self.answer({"organic": [{"title": "t", "link": link}, item("7")]}):
+            results = self.client().search("site:comeet.com/jobs manager")["organic_results"]
+        self.assertEqual(results[0]["displayed_link"], "comeet.com/jobs")
+        self.assertNotIn("displayed_link", results[1])
+
+    def test_errors_stop_the_run_and_never_show_the_key(self):
+        url = "https://google.serper.dev/search"
+        cases = ((400, b'{"message": "Not enough credits"}', True), (429, b"{}", True), (403, b"{}", False))
+        for code, body, quota in cases:
+            failure = HTTPError(url, code, "fixture-secret", {}, io.BytesIO(body))
+            with self.subTest(code=code), patch.object(serper, "urlopen", side_effect=failure):
+                with self.assertRaises(app.ProviderError) as caught:
+                    self.client().search("q")
+                self.assertTrue(caught.exception.fatal)
+                self.assertEqual(caught.exception.quota, quota)
+                self.assertNotIn("fixture-secret", str(caught.exception))
+
+    def test_account_reads_the_balance_and_refuses_an_unclear_answer(self):
+        with self.answer({"balance": 2495, "rateLimit": 5}):
+            account = self.client().account()
+        self.assertEqual((account.plan_left, account.provider, account.paid), (2495, "serper", False))
+        self.assertNotIn("fixture-secret", repr(account))
+        with self.answer({"balance": 2501}):
+            self.assertTrue(self.client().account().paid)                   # more than the free credits: some were bought
+        for broken in ({}, {"balance": "many"}, {"balance": -1}, {"balance": True}):
+            with self.subTest(broken=broken), self.answer(broken), self.assertRaises(app.ProviderError):
+                self.client().account()
+
+
+class OtherServicesTests(unittest.TestCase):
+    TAVILY = {"account": {"current_plan": "Researcher", "plan_usage": 15, "plan_limit": 1000, "paygo_usage": 0}}
+
+    def lines(self, tavily, serper, keys=("TAVILY_API_KEY", "SERPER_API_KEY")):
+        self.requests = []
+
+        def answer(request, timeout=0):
+            self.requests.append(request)
+            found = tavily if "tavily" in request.full_url else serper
+            if isinstance(found, BaseException):
+                raise found
+            return io.BytesIO(json.dumps(found).encode())
+        values = {name: "fixture-secret" if name in keys else "" for name in ("TAVILY_API_KEY", "SERPER_API_KEY")}
+        with patch.object(usage, "urlopen", side_effect=answer), patch.dict("os.environ", values):
+            return usage.other_services(5)
+
+    def test_usage_is_read_without_sending_a_search(self):
+        self.assertEqual(self.lines(self.TAVILY, {"balance": 2495}),
+                         ["Tavily: Researcher plan, 15 of 1000 credits used, 985 left, pay-as-you-go used: 0",
+                          "Serper: 2495 credits left"])
+        self.assertEqual([(r.get_method(), r.full_url) for r in self.requests],
+                         [("GET", usage.TAVILY_URL), ("GET", usage.SERPER_URL)])
+
+    def test_pay_as_you_go_use_is_a_warning(self):
+        charged = {"account": {**self.TAVILY["account"], "paygo_usage": 3}}
+        self.assertIn("WARNING: 3 pay-as-you-go credits", self.lines(charged, {"balance": 1})[0])
+        unclear = {"account": {k: v for k, v in self.TAVILY["account"].items() if k != "paygo_usage"}}
+        self.assertIn("pay-as-you-go use unknown", self.lines(unclear, {"balance": 1})[0])
+
+    def test_a_failing_service_stops_nothing_and_never_shows_the_key(self):
+        refused = HTTPError("https://api.tavily.com/usage", 401, "fixture-secret", {}, None)
+        lines = self.lines(refused, {"balance": 7})
+        self.assertEqual(lines, ["Tavily: unavailable (HTTP 401)", "Serper: 7 credits left"])
+        self.assertNotIn("fixture-secret", " ".join(lines))
+        self.assertEqual(self.lines({}, {"other": 1})[1], "Serper: unavailable (unexpected answer)")
+        self.assertEqual(self.lines(self.TAVILY, {"balance": 7}, keys=("SERPER_API_KEY",))[0], "Tavily: no key set")
+        self.assertEqual(len(self.requests), 1)                             # no request without a key
 
 
 if __name__ == "__main__":

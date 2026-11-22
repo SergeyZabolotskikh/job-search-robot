@@ -6,14 +6,14 @@ the private notes (`docs/PROGRESS.md`, `docs/tasks/`). When an item starts, it b
 and this file links to it.
 
 Statuses: `idea` (not discussed in detail), `needs decision` (the user has to choose), `planned`
-(agreed, not started).
+(agreed, not started), `tested` (tried; the result is in the item).
 
 | # | Item | Status | Changes scope? |
 | --- | --- | --- | --- |
 | 1 | [Browser search source next to SerpApi](#1-browser-search-source-next-to-serpapi) | needs decision | yes |
 | 2 | [AI fit check of each job page](#2-ai-fit-check-of-each-job-page) | needs decision | yes |
 | 3 | [City searches](#3-city-searches) | idea | no |
-| 4 | [Other search services](#4-other-search-services) | idea | no |
+| 4 | [Other search services](#4-other-search-services) | Serper connected as a backup; Tavily tested, not adopted; others idea | no |
 | 5 | [Company job boards read directly](#5-company-job-boards-read-directly) | idea | yes |
 | 6 | [Platform follow-ups](#6-platform-follow-ups) | idea | no |
 | 7 | [Sharing the repository](#7-sharing-the-repository) | needs decision | no |
@@ -94,7 +94,17 @@ builder. Haifa and Ramat Gan were added to the regular location terms on
 
 ## 4. Other search services
 
-- **A paid SerpApi plan**: the same approach with more searches; no code change.
+- **Tavily** (tested 2026-11-22, not adopted): 15 searches. With titles and cities in one sentence
+  it returned mostly careers pages. With a short wording it found 6 of 21 known open jobs for one
+  role group, and few useful new pages.
+- **Serper** (tested 2026-11-22, connected as a backup with `--source serper`): Google results,
+  like SerpApi. 5 searches, one per platform, first page only: 8 of the same 21 jobs and no new
+  ones.
+- **Result**: SerpApi stays the default. The 21 jobs were collected over several SerpApi runs, so
+  this is a rough comparison. Serper is a backup chosen per command; its free credits don't appear
+  to renew. Tavily's key is used only by the `account` command, to show credits.
+- **A paid SerpApi plan**: the same approach with more searches; needs `allow_paid_plan = true`
+  and a higher `monthly_limit`.
 - **Brave Search API**: its own index, not Google's; about $5 of monthly credit (roughly 1,000
   searches) with a card. Needs a test of `site:` support and coverage of the platforms.
 - Google's Custom Search API and Bing's search API are not options (closed or retired).
@@ -114,9 +124,6 @@ the searches find), and platform APIs are out of scope in CLAUDE.md today.
 - **Lever and Workable**: off (no Israeli management jobs found in tests). Re-test occasionally.
 - **Untested platforms** in the example settings (BambooHR, Breezy, Recruitee, Teamtailor): a free
   check of whether they carry Israeli jobs, before any paid test.
-- **Search counter**: the tool counts searches answered from SerpApi's 1-hour cache too, so it can
-  show more than SerpApi's own count (stricter, never looser). Could read SerpApi's account usage
-  (free) instead.
 
 ## 7. Sharing the repository
 

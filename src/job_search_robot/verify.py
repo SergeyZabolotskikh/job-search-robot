@@ -33,13 +33,16 @@ ISRAEL_CODES = {"il", "isr", "israel"}
 PLATFORM_HOSTS = (".greenhouse.io", "comeet.com", "ashbyhq.com", "lever.co", "workable.com",
                   "smartrecruiters.com", "myworkdayjobs.com")
 WORKDAY_NOTE = "Workday: location from the job address; page not read"
+# "Hybrid" or "Remote / On-site" names no place, so it can't show that a job is abroad.
+WORK_MODE_ONLY = re.compile(r"(?:[\s,;/|&()+–-]|remote|hybrid|on-?site|in[- ]?office|office|flexible|"
+                            r"telecommute|anywhere)+", re.I)
 
 
 @dataclass(frozen=True)
 class PageCheck:
     status: str               # open | closed | unknown
     location: str = ""        # as stated on the page
-    in_israel: bool | None = None   # None = no location found
+    in_israel: bool | None = None   # None = the page names no place
     work_mode: str = ""       # remote | hybrid | onsite | ""
     posted: str = ""          # YYYY-MM-DD (Comeet: last update)
     final_url: str = ""
@@ -145,7 +148,7 @@ def _workday(url: str, context: str, settings: Settings) -> PageCheck:
     words = " ".join(re.split(r"[-_+]+", re.sub(r"(?<=[a-z])(?=[A-Z])", " ", place))).strip()  # RehovotISR
     # "ISR" but not "IL": in US addresses IL is Illinois.
     in_israel = mentions_israel(words, settings) or "isr" in words.lower().split()
-    if not in_israel and mentions_israel(context, settings):
+    if not in_israel and (mentions_israel(context, settings) or WORK_MODE_ONLY.fullmatch(words)):
         in_israel = None
     return PageCheck("unknown", f"{words} (from the address)", in_israel, _mode(words), "", url, WORKDAY_NOTE)
 
@@ -155,7 +158,7 @@ def _segments(url: str) -> list[str]:
 
 
 def _israel(location: str, countries: list[str], settings: Settings) -> bool | None:
-    if not location.strip() and not countries:
+    if not countries and (not location.strip() or WORK_MODE_ONLY.fullmatch(location)):
         return None
     return any(c.strip().lower() in ISRAEL_CODES for c in countries) or mentions_israel(location, settings)
 

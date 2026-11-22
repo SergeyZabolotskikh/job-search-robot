@@ -118,13 +118,16 @@ def publish(store: ResultStore, settings: Settings, workbook: Path, summary: dic
 
 
 def run_search(queries: list[SearchQuery], settings: Settings, client, *, history: Path, workbook: Path,
-               pages: int, budget: int, tbs: str = "", fetch=None, resolve=None) -> dict:
-    """`fetch` opens job pages, `resolve` follows Google redirect links; None = skip (tests pass fakes)."""
+               pages: int, budget: int, tbs: str = "", fetch=None, resolve=None, account_id: str = "",
+               provider: str = "serpapi") -> dict:
+    """`fetch` opens job pages, `resolve` follows Google redirect links; None = skip (tests pass fakes).
+    `provider` and `account_id` are the search service and account these searches are recorded under."""
     ensure_writable(workbook)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
     store = ResultStore(history)
-    summary = {"run_id": run_id, "started_utc": utc_now(), "status": "running",
-               "requests_used": 0, "request_budget": budget, "pages_per_query": pages, "freshness": tbs,
+    summary = {"run_id": run_id, "started_utc": utc_now(), "status": "running", "source": provider,
+               "requests_used": 0, "searches_on_platform": 0, "request_budget": budget,
+               "pages_per_query": pages, "freshness": tbs,
                "errors": [], "queries": [{"query": q.text, "family": q.family, "status": "not_started",
                                           "pages_fetched": 0, "results": 0} for q in queries]}
     # Breadth first: all queries get page one before any query gets page two.
@@ -139,6 +142,7 @@ def run_search(queries: list[SearchQuery], settings: Settings, client, *, histor
         for why in failed_links(results):
             links["failed"][why] = links["failed"].get(why, 0) + 1
         ingested = store.ingest(run_id, query, results)
+        summary["searches_on_platform"] += bool(ingested["kept"])
         summary["queries"][index]["results"] += len(ingested["kept"])
         store.record_outcome(run_id, query, start, tbs or "any", describe(payload, results, ingested, settings, more_pages))
 
@@ -154,7 +158,7 @@ def run_search(queries: list[SearchQuery], settings: Settings, client, *, histor
             try:
                 payload = client.search(query.text, start, tbs=tbs)
             except ProviderError as exc:
-                store.record_search(run_id, query, start, "error")
+                store.record_search(run_id, query, start, "error", account_id, provider)
                 state["status"] = "error"
                 summary["errors"].append({"query": query.text, "message": str(exc)})
                 summary["provider_limit"] = summary.get("provider_limit", False) or exc.quota
@@ -162,7 +166,7 @@ def run_search(queries: list[SearchQuery], settings: Settings, client, *, histor
                     fatal = True
                     break
                 continue
-            store.record_search(run_id, query, start, "ok")
+            store.record_search(run_id, query, start, "ok", account_id, provider)
             results = unwrap_links(payload.get("organic_results", []), query, resolve)
             state["pages_fetched"] += 1
             next_start = next_offset(payload, start) if results else None
@@ -215,7 +219,7 @@ def run_search(queries: list[SearchQuery], settings: Settings, client, *, histor
             new_ids = {r["identity"] for r in run_rows if r["new_to_tool"] == "yes"}
             summary.update({"finished_utc": utc_now(), "unique_results": len(run_rows),
                             "new_results": len(new_ids), "job_links": sum(r["result_type"] == "job" for r in run_rows),
-                            "searches_this_month": store.searches_this_month(),
+                            "searches_this_month": store.searches_this_month(provider=provider),
                             "monthly_limit": settings.monthly_limit})
             store.finish(run_id, summary)
             publish(store, settings, workbook, summary, new_ids, None if interrupted else fetch)

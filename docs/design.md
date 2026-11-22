@@ -15,8 +15,8 @@ scheduling, and platform (ATS) APIs.
 
 | Topic | Decision |
 | --- | --- |
-| Search source | Google only, through SerpApi |
-| Budget | SerpApi free plan: 250 searches/month, at most 50/hour; cached (≤ 1 h) and failed searches are not counted. Up to `per_run` searches per run (example 16; one per title group and platform). The tool counts every search, stops at the limits, and tells the user which limit (monthly, hourly or SerpApi's own) stopped or shortened a run |
+| Search source | Google, through SerpApi by default. Serper is a second Google source chosen per command (`--source serper`, never automatic), with the same credit checks and its own count. Tavily was tested and is not used for searching ([roadmap 4](roadmap.md#4-other-search-services)); the `account` command only reads its credits |
+| Budget | SerpApi free plan: 250 searches/month, at most 50/hour; cached (≤ 1 h) and failed searches are not counted. Up to `per_run` searches per run (example 16; one per title group and platform). Before each `run` or `sweep` the tool reads the key's plan, price and searches left from SerpApi's free Account API. It sends no search on a plan with a price (unless `allow_paid_plan = true`) or when that answer is unclear, and never goes past the plan's searches left, so extra credits stay unused. The monthly budget follows SerpApi's count for the key; each search is recorded with its account, and the count is read again after the run. The tool tells the user which limit (monthly, hourly or SerpApi's own) stopped or shortened a run |
 | Inputs | `sources/positions.toml` and `sources/search.toml`, private to each user (git-ignored), copied from the tracked `*.example.toml` files |
 | Tracks | Each role family belongs to a track; the workbook shows the track's label, so the user knows which CV to send. The example has `management` and `ic` |
 | Memory | SQLite `data/history.sqlite3`: the source of truth for "seen before", the user's Status/Note, page checks and the search counter |

@@ -180,6 +180,8 @@ uses the value below, except `freshness` (`week`), `show_career_pages` (`false`)
 | Setting | What it does |
 | --- | --- |
 | `SERPAPI_API_KEY` | Your SerpApi key. A real environment variable with the same name wins. |
+| `SERPER_API_KEY` | Optional. Needed for `--source serper`; `account` also shows its credits. |
+| `TAVILY_API_KEY` | Optional. Not used for searching; `account` only shows its credits. |
 
 ### `sources/positions.toml`
 
@@ -199,9 +201,10 @@ uses the value below, except `freshness` (`week`), `show_career_pages` (`false`)
 
 | Section | Setting | Example | What it does |
 | --- | --- | --- | --- |
-| `[budget]` | `monthly_limit` | `250` | The tool stops at this many searches in a calendar month. |
+| `[budget]` | `monthly_limit` | `250` | The tool stops when SerpApi's own count for this key reaches this number. |
 | | `per_run` | `16` | The most searches one run can spend. |
 | | `per_hour` | `50` | The most searches in one hour. |
+| | `allow_paid_plan` | `false` | `false` stops `run` and `sweep` before any search on a priced SerpApi plan, or on a Serper key with bought credits. |
 | | `pages_per_query` | `1` | Google result pages per query (1-10). Each page is one search. |
 | | `max_query_words` | `20` | Longer title lists split into more queries. Google ignored the platform at 32 words. |
 | | `revisit_days` | `[2, 4, 8]` | Days until a query is due again, for priority 1, 2, 3. |
@@ -272,6 +275,7 @@ how many leads were hidden and why.
 | `refresh` | no | Re-reads Status/Note, checks new job pages, re-applies the filters, rewrites the workbook. Use it after editing filters. |
 | `refresh --recheck` | no | Also opens every job page again, to find jobs closed since. |
 | `sweep` | yes, one per query | Searches every enabled query once and writes `results/query_report_<date>_<time>.xlsx`: what each query returned, with a Google link for a manual check. Use it to tune titles and platforms. |
+| `account` | no | Shows SerpApi's plan, price, searches used and left, what the tool sent per key this month, and Tavily and Serper credits if their keys are set. |
 
 Run them as `uv run job-search-robot <command>`. Useful options:
 
@@ -279,6 +283,7 @@ Run them as `uv run job-search-robot <command>`. Useful options:
 - `--track management|ic` only searches one track.
 - `--max-requests N` lowers this run's budget.
 - `--freshness day|week|month|any` overrides the date filter.
+- `--source serper` makes `preview`, `run` or `sweep` use Serper instead of SerpApi.
 
 `uv run job-search-robot <command> --help` lists them all.
 
@@ -287,20 +292,28 @@ Run them as `uv run job-search-robot <command>`. Useful options:
 **By default the tool is set up for SerpApi's free plan: 250 searches a month, 50 an hour.**
 
 - One search is one Google results page (about 10 results).
-- The tool counts every search in `data/history.sqlite3`, and each run prints "used X of 250
-  this month". At `monthly_limit` or `per_hour` it stops searching. The monthly count restarts
-  on the 1st of the month (UTC). When a limit stops or shortens a run, the tool says so at
-  the end: which limit, how many searches were made, and what to do next. `preview` warns you
-  before a run would be cut short.
+- **Before every `run` or `sweep`, the tool asks SerpApi for this key's plan, price and
+  searches left.** This check is free. If the plan has a price, the tool stops before searching
+  unless you set `allow_paid_plan = true`. It also stops if SerpApi's answer is missing or unclear.
+- A run never goes past the searches left on the plan, so it doesn't use extra credits. It
+  also stops at `monthly_limit` or `per_hour`. When a limit stops or shortens a run, the tool
+  says which limit, how many searches were made, and what to do next. `preview` warns you
+  before a run would be cut short, using SerpApi's count from the last check.
+- After each run, the tool reads SerpApi's count again, waiting up to a minute because that
+  count updates a few seconds after a search. It prints how many of the searches SerpApi
+  really counted, and how many reached a job platform. If few or none did, Google
+  returned other sites; `sweep` shows which queries. `uv run job-search-robot account` shows
+  the current numbers anytime.
 - Each run searches the most overdue queries first and **spends up to `per_run`, even on
   queries that aren't due yet**. So the monthly cost is about `per_run` × the number of
   runs: 16 × 15 runs (every 2 days) = 240.
 - `preview` also estimates what the `revisit_days` schedule needs and warns when that is
   over the monthly limit. To fit, turn off platforms or families, or raise `revisit_days`.
-- Identical searches within an hour are served from SerpApi's cache and are free, though
-  the tool's own counter still counts them. Failed searches aren't charged.
-- SerpApi keeps its own count, and its month may start on a different day. Your SerpApi
-  dashboard has the real number of searches left.
+- Identical searches within an hour are served from SerpApi's cache and are free. Failed
+  searches aren't charged either. Neither uses up the tool's budget, because the budget
+  follows SerpApi's count.
+- SerpApi's month runs to the plan's renewal date, which may not be the 1st. The `account`
+  command shows that date.
 
 ### Need more searches?
 
@@ -316,9 +329,9 @@ Then update your local files. The limits in your settings don't change by themse
 
 1. If the key changed, replace it in `local.env.yaml`. If you set a `SERPAPI_API_KEY`
    environment variable, change it there, because it wins over the file.
-2. Raise `monthly_limit` in `sources/search.toml`. **The tool's counter doesn't know about
-   keys:** it counts every search made this calendar month. For example, after 173 searches
-   on one key, a new key with 250 searches needs `monthly_limit = 423`.
+2. **Another free key needs no limit change:** the tool uses SerpApi's count for whichever
+   key is set. **For a paid plan**, set `allow_paid_plan = true` and raise `monthly_limit` in
+   `sources/search.toml`. Without `allow_paid_plan`, the tool refuses to search on that plan.
 3. Set `per_hour` to your plan's hourly limit, shown on the pricing page.
 4. Raise `per_run` so that `per_run` × runs a month stays within the limit. A run searches
    each enabled query at most once, so also turn on more families or platforms if you want
@@ -329,9 +342,39 @@ For example, on a 1,000-search plan with a run every 2 days:
 
 ```toml
 [budget]
+allow_paid_plan = true
 monthly_limit = 1000
 per_run = 60             # 60 x 15 runs = 900 a month
 ```
+
+### Serper as a backup (optional)
+
+SerpApi is the default. If it runs out or stops working, you can search through Serper, which
+also returns Google results. The tool never switches by itself; you choose it per command:
+
+```bash
+uv run job-search-robot preview --source serper
+uv run job-search-robot run --source serper
+```
+
+- Add `SERPER_API_KEY` to `local.env.yaml`. Serper offers 2,500 free credits, and one search
+  uses one credit. They don't appear to renew monthly, so treat them as a reserve.
+- Leads, page checks, hide rules and the workbook work the same. A query searched through one
+  service counts as searched for the other, so it isn't repeated right away.
+- The tool reads Serper's balance before and after each run and stops at zero. Serper's
+  searches are counted apart from SerpApi's, with their own `monthly_limit`, `per_run` and
+  `per_hour`.
+- A balance above 2,500 means some credits were bought, so the tool stops unless
+  `allow_paid_plan = true`. A lower balance can't show whether credits were bought.
+- Serper's balance address isn't in the public docs we could read. If `account` says
+  `unavailable`, `--source serper` won't search either; check Serper's dashboard.
+
+### Tavily (not used for searching)
+
+Tavily was tested and found too few of the known jobs (see the
+[roadmap](docs/roadmap.md#4-other-search-services)). If you add `TAVILY_API_KEY`, `account`
+shows its plan and credits without sending a search, and warns if any pay-as-you-go credits
+were used, because those are charged.
 
 ## Files the tool writes
 
@@ -347,16 +390,18 @@ All of these are private and git-ignored.
 
 ## Privacy
 
-- The API key lives only in `local.env.yaml`, the environment variable, or the hidden
-  prompt. Error messages never print it.
+- API keys live only in `local.env.yaml`, their environment variables, or (SerpApi only) the
+  hidden prompt. Error messages never print them.
 - Git ignores everything personal, so it stays on your computer: your settings
   (`sources/positions.toml`, `sources/search.toml`), `local.env.yaml`, `data/`,
   `results/`, any `.pdf`/`.doc`/`.docx` file and the `sources/cvs/` folder, and the
   working notes `docs/PROGRESS.md` and `docs/tasks/`.
 - The tool doesn't need or read your CV.
-- The tool sends only search queries (to SerpApi), one request per Google redirect link
-  of a platform result (to Google, to learn the page address), and plain page requests to
-  the public job pages it found (one per second per site, at most 80 per run).
+- The tool sends only search queries and free account checks (to SerpApi, or to Serper with
+  `--source serper`), one request per Google redirect link of a platform result (to Google, to
+  learn the page address), and plain page requests to the public job pages it found (one per
+  second per site, at most 80 per run). If you set Tavily or Serper keys, `account` also asks
+  those services for your credits.
 
 ## Known limitations
 

@@ -1,6 +1,7 @@
 # Job Search Robot
 
-Local CLI that searches Google (through SerpApi, free plan) for jobs on hiring platforms
+Local CLI that searches Google (through SerpApi, free plan; Serper as a backup chosen with
+`--source serper`) for jobs on hiring platforms
 (Comeet, Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday), checks each job page, and writes only
 never-seen leads to an Excel workbook, tagged with the CV ("track") that fits. The user runs
 it from their own computer every ~2 days. README.md is the user guide.
@@ -28,14 +29,17 @@ The repository is shared; each user's personal files stay on their machine (git-
   name, email, CV detail, company applied to, or key.
 
 ## Hard rules
-- **No paid searches without approval.** `run` and `sweep` spend SerpApi credits. Before
-  running either, tell the user how many searches it will make (`preview` shows the plan)
-  and wait for explicit approval of that number. Free: `preview`, `refresh`,
-  `refresh --recheck`, `uv run pytest`.
-- **The API key is secret.** It lives only in git-ignored local.env.yaml, the
-  SERPAPI_API_KEY environment variable, or the hidden prompt. Never read, print or copy
-  local.env.yaml; never put the key in a command, file or output. To check that a key is
-  configured, check only that it is present.
+- **No paid searches without approval.** `run` and `sweep` spend SerpApi credits, or Serper
+  credits with `--source serper`. Before running either, tell the user which service and how
+  many searches it will make (`preview` shows the plan) and wait for explicit approval of
+  that number. The same applies to any search sent to Tavily (the tool never searches it).
+  Free: `preview`, `refresh`,
+  `refresh --recheck`, `account` (reads usage, sends no search), `uv run pytest`.
+- **API keys are secret.** The SerpApi, Tavily and Serper keys live only in git-ignored
+  local.env.yaml or their environment variables (SERPAPI_API_KEY, TAVILY_API_KEY,
+  SERPER_API_KEY); the SerpApi key may also come from the hidden prompt. Never read, print
+  or copy local.env.yaml; never put a key in a command, file or output. To check that a key
+  is configured, check only that it is present.
 - **Private data stays private.** The private files above are personal: never commit them
   or send their contents anywhere. The tool doesn't use CVs; read one only when the user
   asks, and never invent experience.
@@ -50,7 +54,9 @@ The repository is shared; each user's personal files stay on their machine (git-
   code, config comments and docs.
 
 ## Commands
-- `uv sync` installs; `uv run job-search-robot <preview|run|refresh|sweep>`; `uv run pytest`.
+- `uv sync` installs; `uv run job-search-robot <preview|run|refresh|sweep|account>`; `uv run pytest`.
+- `--source serper` on `preview`, `run` or `sweep` uses Serper instead of SerpApi; it never
+  switches by itself.
 - `refresh --recheck` opens every job page again (free). `--family`, `--track`,
   `--max-requests`, `--freshness` work on every command.
 - Windows console: set `PYTHONIOENCODING=utf-8` when output may contain non-Latin text.
@@ -60,12 +66,14 @@ The repository is shared; each user's personal files stay on their machine (git-
 ## Code map (src/job_search_robot/)
 | Module | Role |
 | --- | --- |
-| cli.py | Commands, budget checks (monthly, hourly, per run), key loading |
+| cli.py | Commands, budget checks (paid-plan stop, searches left, monthly, hourly, per run), key loading |
 | config.py | Loads and validates sources/positions.toml and sources/search.toml into `Settings` |
 | queries.py | Builds queries (one platform per query, at most `max_query_words`); schedules by `revisit_days` |
-| serpapi.py | SerpApi client; errors never echo the key |
+| serpapi.py | SerpApi client and free account check; errors never echo the key |
+| serper.py | Serper client (same answer shape as SerpApi) and balance check; errors never echo the key |
+| usage.py | Read-only Tavily and Serper credits for the `account` command; sends no search |
 | urls.py | Canonical URLs and the stable lead identity per platform (the basis of "seen before") |
-| store.py | SQLite memory: results, searches (counter), leads (Status/Note), page_checks, identity_aliases, query_outcomes |
+| store.py | SQLite memory: results, searches (per account), account_checks, leads (Status/Note), page_checks, identity_aliases, query_outcomes |
 | collector.py | One run: import Status/Note, search breadth-first, follow Google redirect links (two more tries after the searches), record outcomes, check pages, publish |
 | verify.py | Job page check: Comeet `POSITION_DATA`, Greenhouse `job__location` / embedded copy, schema.org JobPosting (JSON-LD or microdata: SmartRecruiters); Workday from the address, never requested; Google redirect links → page address |
 | filters.py | Hide rules (excluded titles, careers pages, closed, abroad) and duplicate detection |
@@ -77,7 +85,7 @@ The repository is shared; each user's personal files stay on their machine (git-
 - Python 3.14 with uv. Dependencies: stdlib, openpyxl, pyyaml. Ask before adding any.
 - Out of scope: applying or messaging, CV rewriting, LLM ranking, web UI, scheduler,
   platform (ATS) APIs.
-- Tests must never reach the network: `verify.urlopen` and `verify.open_no_redirect` are
+- Tests must never reach the network: `verify.urlopen`, `verify.open_no_redirect`, `usage.urlopen` and `serper.urlopen` are
   blocked for the whole suite; pass fake `fetch`/`resolve` functions and fake clients. Add tests only where a bug would lose,
   repeat or wrongly hide leads, or spend credits: dedupe ("seen before"), hide rules, page
   parsers, the search counter, Status/Note preservation.

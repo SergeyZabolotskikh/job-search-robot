@@ -71,6 +71,7 @@ class Settings:
     timeout_seconds: int
     show_career_pages: bool = False   # company careers pages (boards) are hidden unless true
     old_posting_days: int = 60        # Posted cell shaded when the job is older than this
+    allow_paid_plan: bool = False     # False: no search is sent on a SerpApi plan with a price
 
     @property
     def tbs(self) -> str:
@@ -208,6 +209,9 @@ def load_settings(positions: Path = DEFAULT_POSITIONS, search: Path = DEFAULT_SE
     show_boards = filters.get("show_career_pages", False)
     if not isinstance(show_boards, bool):
         raise ConfigError("filters.show_career_pages must be true or false.")
+    allow_paid = budget.get("allow_paid_plan", False)
+    if not isinstance(allow_paid, bool):
+        raise ConfigError("budget.allow_paid_plan must be true or false.")
     return Settings(
         tracks=tracks, families=families, platforms=tuple(platforms), regions=tuple(regions),
         query_terms=phrases(_table(data, "location", label).get("query_terms"), "location.query_terms"),
@@ -222,4 +226,5 @@ def load_settings(positions: Path = DEFAULT_POSITIONS, search: Path = DEFAULT_SE
         country=codes["country"], language=codes["language"], freshness=freshness,
         timeout_seconds=positive_int(google.get("timeout_seconds", 30), "google.timeout_seconds", 120),
         show_career_pages=show_boards,
-        old_posting_days=positive_int(filters.get("old_posting_days", 60), "filters.old_posting_days", 3650))
+        old_posting_days=positive_int(filters.get("old_posting_days", 60), "filters.old_posting_days", 3650),
+        allow_paid_plan=allow_paid)
