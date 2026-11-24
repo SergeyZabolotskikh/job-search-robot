@@ -34,7 +34,7 @@ roles in Israel. [Setup](#setup-once) walks through everything you need to confi
 
 ## Setup (once)
 
-Steps 1-6 are free. Only step 7 uses searches.
+Steps 1-7 use no searches. Only step 8 does.
 
 ### What you need
 
@@ -52,7 +52,43 @@ Steps 1-6 are free. Only step 7 uses searches.
 - A free [SerpApi](https://serpapi.com) account, for your API key.
 - Excel, LibreOffice or another spreadsheet app, to read the results.
 
-### Step 1: Download and install
+### Step 1: Decide which roles to search
+
+The tool searches only for the job titles you give it, so start with a short list. Each group
+of titles costs one search per platform, so a focused list makes the free plan go further.
+Choose one way:
+
+**Option A: ask Claude to suggest roles from your CV.** Open [Claude](https://claude.ai) or
+[Claude Code](https://claude.com/claude-code), attach your CV and paste this:
+
+```text
+Here is my CV. I am looking for jobs using exact job-title searches on hiring platforms.
+Suggest which job titles I should search for.
+
+- Group the titles by kind of role: at most 5 groups, up to 3 short titles each.
+- Use the shortest common title: "Engineering Manager" also finds "Senior Engineering Manager".
+- Mark each group as a strong fit or a realistic stretch, based only on my CV.
+- List similar roles I should skip, and why.
+- Do not review or rewrite my CV.
+
+What I want and don't want: <for example: backend, people management, no sales>
+```
+
+**Option B: write the list yourself:**
+
+```text
+Want: Engineering Manager, Team Lead, Software Architect
+Don't want: Sales, Hardware
+```
+
+Keep the list for later: the titles you want go into [step 5](#step-5-set-the-roles-you-want),
+and the words you don't want go into `title_exclude` in
+[step 6](#step-6-set-location-platforms-and-filters).
+
+The tool itself never reads your CV. With option A, you share it with Anthropic through Claude,
+so remove your phone number and address first if you prefer.
+
+### Step 2: Download and install
 
 ```bash
 git clone <this repository's URL>
@@ -60,7 +96,7 @@ cd job-search-robot
 uv sync
 ```
 
-### Step 2: Add your SerpApi key
+### Step 3: Add your SerpApi key
 
 1. Copy your key from your [SerpApi API key page](https://serpapi.com/manage-api-key).
 2. Create your private key file, which git ignores:
@@ -76,7 +112,7 @@ Alternatives: set a `SERPAPI_API_KEY` environment variable (it wins over the fil
 both empty and `run` asks for the key (hidden input, never saved). Never put the key in any
 other file.
 
-### Step 3: Create your settings files
+### Step 4: Create your settings files
 
 ```powershell
 Copy-Item sources\positions.example.toml sources\positions.toml
@@ -87,9 +123,9 @@ Copy-Item sources\search.example.toml sources\search.toml
 
 Git ignores your copies, so they stay on your computer. Edit the copies, not the examples.
 
-### Step 4: Set the roles you want
+### Step 5: Set the roles you want
 
-Open `sources/positions.toml`.
+Open `sources/positions.toml` and enter the list from step 1.
 
 **Tracks** are the kinds of job you apply for, usually one per CV. The label appears in the
 workbook, so you know which CV to send:
@@ -120,7 +156,7 @@ List the **shortest phrase** that still means the right job. Each title is an ex
 search, so "Engineering Manager" also finds "Senior Engineering Manager". Every enabled family
 costs at least one search per platform each time it is searched, so keep the list focused.
 
-### Step 5: Set location, platforms and filters
+### Step 6: Set location, platforms and filters
 
 Open `sources/search.toml` and check these sections:
 
@@ -141,7 +177,7 @@ Open `sources/search.toml` and check these sections:
 The tool is built for jobs in Israel: its "abroad" check is fixed in the code, so searching
 another country needs a code change.
 
-### Step 6: Check the plan
+### Step 7: Check the plan
 
 This is free and uses no key or network:
 
@@ -155,7 +191,7 @@ month. If it says **over the limit**, turn off some families or platforms. A mis
 settings file stops the tool here with a message, before any search.
 `results/search_plan.html` has clickable Google links, so you can try any query by hand.
 
-### Step 7: Run your first search
+### Step 8: Run your first search
 
 **This spends up to 16 of your 250 monthly searches** (the `per_run` setting):
 
@@ -396,7 +432,8 @@ All of these are private and git-ignored.
   (`sources/positions.toml`, `sources/search.toml`), `local.env.yaml`, `data/`,
   `results/`, any `.pdf`/`.doc`/`.docx` file and the `sources/cvs/` folder, and the
   working notes `docs/PROGRESS.md` and `docs/tasks/`.
-- The tool doesn't need or read your CV.
+- The tool doesn't need or read your CV. If you use Claude in
+  [step 1](#step-1-decide-which-roles-to-search), you share the CV with Anthropic yourself.
 - The tool sends only search queries and free account checks (to SerpApi, or to Serper with
   `--source serper`), one request per Google redirect link of a platform result (to Google, to
   learn the page address), and plain page requests to the public job pages it found (one per
