@@ -127,7 +127,7 @@ the searches find), and platform APIs are out of scope in CLAUDE.md today.
 
 ## 7. Sharing the repository
 
-- A license (e.g. MIT) for others to use the code.
+- A license: done 2026-11-25 (MIT, `LICENSE`).
 - Review `sources/search.example.toml` defaults against what the tests showed (freshness "any",
   which platforms are on by default).
 

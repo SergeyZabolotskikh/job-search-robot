@@ -19,7 +19,7 @@ The repository is shared; each user's personal files stay on their machine (git-
 | --- | --- |
 | sources/positions.toml, sources/search.toml | sources/positions.example.toml, sources/search.example.toml |
 | local.env.yaml | local.env.example.yaml |
-| docs/PROGRESS.md, docs/tasks/ (working notes) | docs/task-template.md (their format), docs/design.md, docs/roadmap.md |
+| docs/PROGRESS.md, docs/tasks/ (working notes) | docs/task-template.md (their format), docs/design.md, docs/roadmap.md, LICENSE (MIT) |
 | data/, results/, CVs (sources/cvs/, *.pdf, *.doc, *.docx) | code, tests, README.md, CLAUDE.md |
 
 - The examples must stay generic and valid: no personal details, and a new setting gets
@@ -92,6 +92,11 @@ The repository is shared; each user's personal files stay on their machine (git-
 - Keep README.md in step with commands, columns and settings.
 
 ## Working process
+- **Using the tool is not a task.** If the user only wants to search (set it up with the
+  README steps, choose roles, edit their own settings, run `preview`/`run`/`refresh`, read the
+  workbook), help directly: no stages, no task notes, no docs/PROGRESS.md needed. The hard
+  rules above still apply. Everything below is for changes to the tool itself (code, tests,
+  shared docs).
 - Discuss before creating: propose, get agreement, then write files.
 - A bigger task has 5 stages: Why & what, Inputs/outputs, Design, Code, Progress & next
   step. Stop for the user's review after Design and after Code; small tasks may go straight

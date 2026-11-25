@@ -316,7 +316,8 @@ how many leads were hidden and why.
 Run them as `uv run job-search-robot <command>`. Useful options:
 
 - `--family <id>` only searches that family (repeatable; also works for disabled ones).
-- `--track management|ic` only searches one track.
+- `--track <id>` only searches the families of that track: one of the `[tracks.<id>]` ids in
+  your `positions.toml`, such as `management` (repeatable).
 - `--max-requests N` lowers this run's budget.
 - `--freshness day|week|month|any` overrides the date filter.
 - `--source serper` makes `preview`, `run` or `sweep` use Serper instead of SerpApi.
@@ -475,8 +476,10 @@ does (see the "Changes scope?" column there), so none starts without your decisi
 
 `CLAUDE.md` tells [Claude Code](https://claude.com/claude-code) how this project works
 and what it must not do. In particular, it must never spend searches without your OK and
-never read your key file. Good requests:
+never read your key file. Just ask for what you want: the task stages and notes in `CLAUDE.md`
+are only for changing the tool itself. Good requests:
 
+- "Help me set up the tool: README steps 1-7. Here is my CV / my list of roles."
 - "Run preview and tell me how many searches a month my configuration needs."
 - "Read my Status and Note marks in results/job_leads.xlsx and propose title_exclude or
   role changes."
@@ -492,3 +495,7 @@ The tests never touch the network or SerpApi. Code lives in `src/job_search_robo
 `CLAUDE.md` describes the modules, `docs/design.md` records the design decisions, and
 `docs/roadmap.md` lists improvements not started yet. `docs/task-template.md` shows the
 format of the private task notes.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

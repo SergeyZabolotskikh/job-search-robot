@@ -53,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--output", type=Path, default=DEFAULT_RESULTS, help="Folder for the workbook and reports")
         sub.add_argument("--history", type=Path, default=DEFAULT_HISTORY, help="SQLite memory file")
         sub.add_argument("--family", action="append", help="Only this family id (repeatable; also runs disabled ones)")
-        sub.add_argument("--track", action="append", help="Only this track: management or ic (repeatable)")
+        sub.add_argument("--track", action="append", help="Only this track id from positions.toml, e.g. management (repeatable)")
         sub.add_argument("--max-requests", type=int, help="Lower the search budget for this run")
         sub.add_argument("--freshness", choices=list(FRESHNESS),
                          help="Override google.freshness ('any' = no date filter; sweep default: any)")
