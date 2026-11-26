@@ -426,11 +426,9 @@ def refresh(settings: Settings, history_path: Path, workbook: Path, fetch, reche
     ensure_writable(workbook)
     store = ResultStore(history_path)
     try:
-        if recheck:
-            store.forget_checks()
         summary = {"command": "refresh", "started_utc": utc_now(), "identities_migrated": store.migrated,
                    "notes_imported": store.save_notes(read_notes(workbook))}
-        publish(store, settings, workbook, summary, set(), fetch)
+        publish(store, settings, workbook, summary, set(), fetch, recheck=recheck)
     finally:
         store.close()
     print_workbook_summary(summary, workbook)

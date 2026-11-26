@@ -86,9 +86,11 @@ def describe(payload: dict, results: list, ingested: dict, settings: Settings, m
             "examples": examples}
 
 
-def check_pages(store: ResultStore, settings: Settings, fetch, limit: int = 80) -> dict:
-    """Open each unchecked job page once (plain HTTP, no SerpApi credits)."""
-    todo = store.unchecked_jobs(limit)
+def check_pages(store: ResultStore, settings: Settings, fetch, limit: int = 80, recheck: bool = False) -> dict:
+    """Open each unchecked job page once (plain HTTP, no search credits), at most `limit`.
+    `recheck` opens every job page again, without the limit. Each earlier result stays until its page
+    is read again: a page that can't be read keeps its earlier open/closed result."""
+    todo = store.jobs_to_recheck() if recheck else store.unchecked_jobs(limit)
     counts: Counter = Counter()
     last_host = ""
     for index, row in enumerate(todo, start=1):
@@ -98,6 +100,11 @@ def check_pages(store: ResultStore, settings: Settings, fetch, limit: int = 80) 
                 time.sleep(PAGE_PAUSE_SECONDS)  # be polite: one page per second per site
             last_host = host
         check = check_page(row["url"], row["platform"], settings, fetch, context=f'{row["title"]} {row["snippet"]}')
+        if recheck and check.not_read and row["old_status"] in ("open", "closed"):
+            counts["not read (earlier result kept)"] += 1
+            print(f"[page {index}/{len(todo)}] kept    {check.note}: earlier result ({row['old_status']}) kept",
+                  flush=True)
+            continue
         store.save_check(row["identity"], check)
         counts[check.status] += 1
         where = check.location or check.note
@@ -106,10 +113,11 @@ def check_pages(store: ResultStore, settings: Settings, fetch, limit: int = 80) 
 
 
 def publish(store: ResultStore, settings: Settings, workbook: Path, summary: dict, new_ids: set[str],
-            fetch=None) -> None:
-    """Check new job pages (if `fetch`), apply the hide rules, rewrite the workbook and last_run.json."""
+            fetch=None, recheck: bool = False) -> None:
+    """Check new job pages (if `fetch`; every job page if `recheck`), apply the hide rules, rewrite the
+    workbook and last_run.json."""
     if fetch is not None:
-        summary["page_checks"] = check_pages(store, settings, fetch)
+        summary["page_checks"] = check_pages(store, settings, fetch, recheck=recheck)
     shown, hidden = split_visible(store.rows(), settings)
     summary.update({"shown_in_workbook": len(shown), "hidden": dict(hidden),
                     "new_shown": sum(r["identity"] in new_ids for r in shown)})

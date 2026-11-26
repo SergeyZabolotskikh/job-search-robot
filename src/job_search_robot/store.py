@@ -223,10 +223,15 @@ class ResultStore:
                 c.note LIKE 'page could not%' OR c.note = 'HTTP 429' OR c.note LIKE 'HTTP 5%'))
             ORDER BY r.first_seen_utc DESC LIMIT ?""", (limit,)).fetchall()
 
-    def forget_checks(self) -> None:
-        """Check every job page again on the next page check (e.g. to find jobs closed since)."""
-        with self.connection:
-            self.connection.execute("DELETE FROM page_checks")
+    def jobs_to_recheck(self) -> list[sqlite3.Row]:
+        """Every job lead for `refresh --recheck`, never-checked and oldest check first, with the
+        status of its earlier check (old_status, None if never checked). Earlier checks are kept
+        until replaced, so a job known to be closed or abroad stays hidden during a recheck."""
+        return self.connection.execute("""SELECT r.identity, r.url, r.platform, r.title, r.snippet,
+                c.status AS old_status FROM results r
+            LEFT JOIN page_checks c ON c.identity = r.identity
+            WHERE r.result_type = 'job'
+            ORDER BY c.checked_utc IS NOT NULL, c.checked_utc, r.first_seen_utc DESC""").fetchall()
 
     def save_check(self, identity: str, check) -> None:
         with self.connection:

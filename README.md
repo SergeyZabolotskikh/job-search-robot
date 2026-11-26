@@ -309,7 +309,7 @@ how many leads were hidden and why.
 | `preview` | no | Shows the planned queries and the monthly schedule; writes `results/search_plan.html`/`.csv`. |
 | `run` | yes, up to `per_run` (16 in the example) | Searches the most overdue queries and updates the workbook. |
 | `refresh` | no | Re-reads Status/Note, checks new job pages, re-applies the filters, rewrites the workbook. Use it after editing filters. |
-| `refresh --recheck` | no | Also opens every job page again, to find jobs closed since. |
+| `refresh --recheck` | no | Also opens every job page again, to find jobs closed since. It opens them all in one go (a few minutes for a few hundred jobs). Until a page is read again, its earlier result stays, and a page that can't be read keeps it, so a job already known to be closed or abroad stays hidden. |
 | `sweep` | yes, one per query | Searches every enabled query once and writes `results/query_report_<date>_<time>.xlsx`: what each query returned, with a Google link for a manual check. Use it to tune titles and platforms. |
 | `account` | no | Shows SerpApi's plan, price, searches used and left, what the tool sent per key this month, and Tavily and Serper credits if their keys are set. |
 
@@ -438,7 +438,7 @@ All of these are private and git-ignored.
 - The tool sends only search queries and free account checks (to SerpApi, or to Serper with
   `--source serper`), one request per Google redirect link of a platform result (to Google, to
   learn the page address), and plain page requests to the public job pages it found (one per
-  second per site, at most 80 per run). If you set Tavily or Serper keys, `account` also asks
+  second per site, at most 80 per run; `refresh --recheck` opens every job page). If you set Tavily or Serper keys, `account` also asks
   those services for your credits.
 
 ## Known limitations

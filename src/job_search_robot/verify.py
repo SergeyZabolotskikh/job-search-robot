@@ -48,6 +48,12 @@ class PageCheck:
     final_url: str = ""
     note: str = ""
 
+    @property
+    def not_read(self) -> bool:
+        """The page couldn't be read this time (network error, blocked, too many requests, server
+        error), so this check says nothing new about the job."""
+        return self.status == "unknown" and self.note.startswith(("HTTP ", "page could not"))
+
 
 def fetch_page(url: str, timeout: int = 15) -> tuple[int, str, str]:
     """(HTTP status, final URL after redirects, page text). Status 0 = network failure."""

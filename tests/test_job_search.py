@@ -803,6 +803,30 @@ class DedupeMemoryTests(unittest.TestCase):
         finally:
             store.close()
 
+    def test_recheck_opens_every_page_and_never_unhides_a_known_job(self):
+        settings = app.load_settings(POSITIONS, SEARCH)
+        query = app.SearchQuery("em", "EM", "management", 1, 0, ("greenhouse.io",), (), "q")
+        closed, abroad, israel = (f"https://job-boards.greenhouse.io/acme/jobs/{n}" for n in (1, 2, 3))
+        here = '<div class="job__location"><svg></svg>Tel Aviv, Israel</div>'
+        first = {closed: (404, closed, ""),
+                 abroad: (200, abroad, '<div class="job__location"><svg></svg>Remote, USA</div>'),
+                 israel: (200, israel, here)}
+        later = {abroad: (200, abroad, here), israel: (404, israel, "")}     # `closed` can't be read now
+        store = app.ResultStore(self.history)
+        try:
+            store.ingest("run1", query, [{"link": url, "title": title, "snippet": ""} for url, title in
+                                         ((closed, "Engineering Manager"), (abroad, "Team Lead"), (israel, "Architect"))])
+            with contextlib.redirect_stdout(io.StringIO()):
+                app.check_pages(store, settings, fake_pages(first))
+                self.assertEqual(dict(app.split_visible(store.rows(), settings)[1]), {"closed": 1, "abroad": 1})
+                counts = app.check_pages(store, settings, fake_pages(later), limit=1, recheck=True)
+            self.assertEqual(counts, {"not read (earlier result kept)": 1, "open": 1, "closed": 1})  # all 3, past the limit
+            shown, hidden = app.split_visible(store.rows(), settings)
+            self.assertEqual(dict(hidden), {"closed": 2})       # the unread page keeps "closed"; the other closed since
+            self.assertEqual([r["identity"] for r in shown], ["greenhouse:acme:2"])   # no longer abroad
+        finally:
+            store.close()
+
     def test_hidden_leads_never_return_as_new(self):
         settings = app.load_settings(POSITIONS, SEARCH)
         settings = app.Settings(**{**vars(settings), "platforms": settings.platforms[:1]})
