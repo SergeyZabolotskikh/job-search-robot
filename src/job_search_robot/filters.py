@@ -6,8 +6,12 @@ Rules, in order (decided with the user 2026-11-10, extended 2026-11-17):
 3. A company careers page (a board, not one job): hidden unless `show_career_pages = true`.
 4. The job page says the job is closed: hidden.
 5. The job page states a location and none of it is in Israel: hidden.
-6. Duplicates: same company and same title once location tags are removed (text in parentheses
-   counts unless it only names a place or work mode), or titles that differ
+6. The job page's date is more than `hide_older_than_days` days ago (0 = never; added 2026-11-26):
+   hidden. A job without a date is shown.
+7. Duplicates: same company and same title once location tags are removed (text in parentheses
+   counts unless it only names a place or work mode; its parts in any order), also ignoring an
+   "Easy apply -" start, Google's "- this page" end, the company's own name, and "Sr" for
+   "Senior" (added 2026-11-26), or titles that differ
    only by a leading level word (Staff / Principal ...) with the same page location and posting
    date -> only the earliest is shown. A lead the user marked "duplicate" never counts as the
    original. A company board page is hidden when another lead of that company is shown.
@@ -16,6 +20,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from datetime import date
 
 from .config import Settings
 from .store import DEFAULT_STATUS
@@ -43,19 +48,42 @@ def _place_only(match: re.Match) -> str:
     """'(Remote)', '(Tel Aviv / Hybrid)' only name a place or work mode: dropped. '(Platform)' or
     '(Data team)' tell two jobs apart: kept (dropping them hid separate jobs as duplicates)."""
     parts = [p.strip() for p in re.split(r"[,/;|&]|\s-\s", match.group(1)) if p.strip()]
-    return " " if parts and all(LOCATION_TAG.fullmatch(p) for p in parts) else f" {match.group(1)} "
+    if parts and all(LOCATION_TAG.fullmatch(p) for p in parts):
+        return " "
+    return f" {' '.join(sorted(parts))} "   # '(Armis/Veza)' and '(Veza/Armis)' are the same
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+def _without_company(title: str, company: str) -> str:
+    """Drops the company's own name from the start of a title: 'ServiceNow Staff Engineer',
+    'Kaltura, Inc. Team Lead' (company 'KalturaInc'). Keeps the title if nothing else is left."""
+    words = title.split()
+    for count in range(1, min(4, len(words) - 1) + 1):
+        if company and _compact(" ".join(words[:count])) == company:
+            return " ".join(words[count:])
+    return title
 
 
 def title_key(row: dict) -> str:
-    """Comparable job title: no 'Job Application for', no '@ Company', no location tags."""
+    """Comparable job title: no 'Job Application for', 'Easy apply -', '@ Company', '- this page',
+    company name or location tags; 'Sr' counts as 'Senior'."""
+    company = _compact(row.get("company_url_slug") or "")
     title = row["title"].lower()
     title = re.sub(r"^\s*(job application for|jobs at)\s+", "", title)
+    title = re.sub(r"^\s*easy apply\s*[-–:]\s*", "", title)
+    title = re.sub(r"\s*[-–]\s*this page\s*$", "", title)
     title = re.sub(r"\s+(@|at)\s+[^|,(-]+(\s*-\s*comeet)?\s*$", "", title)
     title = re.sub(r"\s*-\s*comeet\s*$", "", title)
+    title = _without_company(title, company)
     title = re.sub(r"\(([^)]*)\)", _place_only, title)
-    parts = [p for p in re.split(r"\s+[-–|]\s+|,\s*", title) if p and not LOCATION_TAG.fullmatch(p.strip())]
+    parts = [p for p in re.split(r"\s+[-–|]\s+|,\s*", title)
+             if p and not LOCATION_TAG.fullmatch(p.strip()) and not (company and _compact(p) == company)]
     kept = [p for p in parts if not (LOCATION_TAG.search(p) and len(p.split()) <= 3)] or parts
-    return re.sub(r"[^a-z0-9&]+", " ", " ".join(kept)).strip()
+    words = re.sub(r"[^a-z0-9&]+", " ", " ".join(kept)).split()
+    return " ".join("senior" if w == "sr" else w for w in words)
 
 
 def level_key(row: dict) -> tuple[str, str, str] | None:
@@ -78,7 +106,20 @@ def hide_reason(row: dict, settings: Settings) -> str | None:
         return "closed"
     if check and check["in_israel"] == 0:
         return "abroad"
+    if check and settings.hide_older_than_days and days_since_posted(check) > settings.hide_older_than_days:
+        return "old posting"
     return None
+
+
+def days_since_posted(check: dict, today: date | None = None) -> int:
+    """Days since the date on the job page (Comeet: last update); -1 when the page gave no date."""
+    match = re.match(r"(\d{4})-(\d{2})-(\d{2})", check.get("posted") or "")
+    if not match:
+        return -1
+    try:
+        return ((today or date.today()) - date(*map(int, match.groups()))).days
+    except ValueError:
+        return -1
 
 
 def split_visible(rows: list[dict], settings: Settings) -> tuple[list[dict], Counter]:

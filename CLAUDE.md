@@ -30,7 +30,8 @@ The repository is shared; each user's personal files stay on their machine (git-
 
 ## Hard rules
 - **No paid searches without approval.** `run` and `sweep` spend SerpApi credits, or Serper
-  credits with `--source serper`. Before running either, tell the user which service and how
+  credits when `[google] source = "serper"` in search.toml or `--source serper`. Before running
+  either, tell the user which service (the setting, unless `--source` is given) and how
   many searches it will make (`preview` shows the plan) and wait for explicit approval of
   that number. The same applies to any search sent to Tavily (the tool never searches it).
   Free: `preview`, `refresh`,
@@ -55,7 +56,8 @@ The repository is shared; each user's personal files stay on their machine (git-
 
 ## Commands
 - `uv sync` installs; `uv run job-search-robot <preview|run|refresh|sweep|account>`; `uv run pytest`.
-- `--source serper` on `preview`, `run` or `sweep` uses Serper instead of SerpApi; it never
+- `[google] source` in search.toml picks SerpApi or Serper; `--source` on `preview`, `run` or
+  `sweep` overrides it for one command. The tool never
   switches by itself.
 - `refresh --recheck` opens every job page again (free). `--family`, `--track`,
   `--max-requests`, `--freshness` work on every command.
@@ -76,7 +78,7 @@ The repository is shared; each user's personal files stay on their machine (git-
 | store.py | SQLite memory: results, searches (per account), account_checks, leads (Status/Note), page_checks, identity_aliases, query_outcomes |
 | collector.py | One run: import Status/Note, search breadth-first, follow Google redirect links (two more tries after the searches), record outcomes, check pages, publish |
 | verify.py | Job page check: Comeet `POSITION_DATA`, Greenhouse `job__location` / embedded copy, schema.org JobPosting (JSON-LD or microdata: SmartRecruiters); Workday from the address, never requested; Google redirect links → page address |
-| filters.py | Hide rules (excluded titles, careers pages, closed, abroad) and duplicate detection |
+| filters.py | Hide rules (excluded titles, careers pages, closed, abroad, old posting) and duplicate detection |
 | workbook.py | The Excel workbook; text is never written as a formula; atomic save |
 | query_report.py, reports.py | Sweep report; preview HTML/CSV |
 | localenv.py, common.py | local.env.yaml loading; paths, errors, atomic writes |

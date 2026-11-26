@@ -29,7 +29,7 @@ DEFAULT_HISTORY = ROOT / "data" / "history.sqlite3"
 DEFAULT_RESULTS = ROOT / "results"
 COMMANDS = (
     ("preview", "Show the planned searches; no API key, no network, no credits"),
-    ("run", "Search (SerpApi, or Serper with --source serper) and add new leads to results/job_leads.xlsx"),
+    ("run", "Search (SerpApi or Serper: [google] source or --source) and add new leads to results/job_leads.xlsx"),
     ("sweep", "Search every enabled query once (page 1) and write a per-query outcome report"),
     ("refresh", "Free: re-read your Status/Note, check new job pages, re-apply the filters, rewrite the workbook"),
     ("account", "Free: show SerpApi's plan, price, searches used and left, plus Tavily and Serper credits; sends no search"),
@@ -58,10 +58,11 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--freshness", choices=list(FRESHNESS),
                          help="Override google.freshness ('any' = no date filter; sweep default: any)")
         sub.add_argument("--env-file", type=Path, default=LOCAL_ENV, help="Local values file (default local.env.yaml)")
-        sub.set_defaults(fetch=fetch_page, resolve=resolve_redirect, source="serpapi")  # tests replace fetch, resolve
+        sub.set_defaults(fetch=fetch_page, resolve=resolve_redirect, source=None)  # tests replace fetch, resolve
         if command in ("preview", "run", "sweep"):
-            sub.add_argument("--source", choices=list(SOURCE_NAMES), default="serpapi",
-                             help="Search service for this command (default serpapi)")
+            sub.add_argument("--source", choices=list(SOURCE_NAMES), default=None,
+                             help="Search service for this command (default: [google] source in search.toml, "
+                                  "else serpapi)")
         if command == "refresh":
             sub.add_argument("--recheck", action="store_true",
                              help="Open every job page again (finds jobs closed since the last check)")
@@ -281,6 +282,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         settings = load_settings(args.positions, args.search_config)
+        args.source = args.source or settings.source  # --source wins over the setting
         history_path = args.history.expanduser().resolve()
         output = args.output.expanduser().resolve()
         if args.command == "refresh":

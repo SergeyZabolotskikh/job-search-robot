@@ -2,13 +2,13 @@
 
 A small command-line tool that finds job postings at Israeli companies on hiring
 platforms (Comeet, Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Workday). It searches Google through
-[SerpApi](https://serpapi.com), opens each job page to check it, and adds only the leads
-it has **never shown you before** to one Excel workbook. Each lead is tagged with the
-CV that fits it.
+[SerpApi](https://serpapi.com) or [Serper](https://serper.dev), opens each job page to check it,
+and adds only the leads it has **never shown you before** to one Excel workbook. Each lead is
+tagged with the CV that fits it.
 
-**By default it uses SerpApi's free plan: 250 searches a month.** The tool counts its
-searches and stops at the limit. To search more, use another SerpApi key or pay for a bigger
-plan: see [Search limits and getting more searches](#search-limits-and-getting-more-searches).
+**By default it uses SerpApi's free plan: 250 searches a month.** Serper instead gives 2,500
+free searches once. The tool counts its searches and stops at the limit. To search more, see
+[Search limits and getting more searches](#search-limits-and-getting-more-searches).
 
 The example settings are sized for a run every ~2 days on the free plan. They search five
 platforms for engineering-manager, team-lead, group-manager, head-of and software-architect
@@ -29,7 +29,8 @@ roles in Israel. [Setup](#setup-once) walks through everything you need to confi
    `data/history.sqlite3`. A lead found again is never "new" again.
 3. **Check the job page** (free, plain HTTP): location, work mode, posting date, open or
    closed.
-4. **Filter.** Jobs abroad, closed jobs, duplicates and titles you exclude are hidden.
+4. **Filter.** Jobs abroad, closed jobs, duplicates and titles you exclude are hidden, and
+   old postings too if you set an age limit.
 5. **Write the workbook** `results/job_leads.xlsx`. Your Status and Note columns are kept.
 
 ## Setup (once)
@@ -49,7 +50,9 @@ Steps 1-7 use no searches. Only step 8 does.
   curl -LsSf https://astral.sh/uv/install.sh | sh
   ```
   Then open a new terminal and check that `uv --version` works.
-- A free [SerpApi](https://serpapi.com) account, for your API key.
+- A free account with a search service, for its API key: [SerpApi](https://serpapi.com) or
+  [Serper](https://serper.dev). [Step 3](#step-3-choose-a-search-service-and-add-its-key) helps
+  you choose.
 - Excel, LibreOffice or another spreadsheet app, to read the results.
 
 ### Step 1: Decide which roles to search
@@ -96,21 +99,34 @@ cd job-search-robot
 uv sync
 ```
 
-### Step 3: Add your SerpApi key
+### Step 3: Choose a search service and add its key
 
-1. Copy your key from your [SerpApi API key page](https://serpapi.com/manage-api-key).
+Both services return Google results, and both start free:
+
+| Service | Free searches | Best for |
+| --- | --- | --- |
+| [SerpApi](https://serpapi.com) (the default) | 250 a month, renewed every month | Long-term use: a run every ~2 days fits. |
+| [Serper](https://serper.dev) | 2,500 once; they don't renew | More searches now, until they run out. |
+
+You can add both keys and switch at any time; the tool remembers every job whichever service
+found it, so switching never brings old jobs back as new.
+
+1. Copy your key: from your [SerpApi API key page](https://serpapi.com/manage-api-key), or
+   from the API key page of your Serper dashboard.
 2. Create your private key file, which git ignores:
    ```powershell
    Copy-Item local.env.example.yaml local.env.yaml     # macOS/Linux: cp local.env.example.yaml local.env.yaml
    ```
-3. Open `local.env.yaml` and replace `paste-your-key-here` with your key:
+3. Open `local.env.yaml` and paste your key in place of `paste-your-key-here`:
    ```yaml
-   SERPAPI_API_KEY: "your-key"
+   SERPAPI_API_KEY: "your-key"     # SerpApi
+   SERPER_API_KEY: "your-key"      # Serper: also remove the # at the start of its line
    ```
+4. **Using Serper?** In step 6, set `source = "serper"` under `[google]` in `sources/search.toml`.
 
-Alternatives: set a `SERPAPI_API_KEY` environment variable (it wins over the file), or leave
-both empty and `run` asks for the key (hidden input, never saved). Never put the key in any
-other file.
+Alternatives: set a `SERPAPI_API_KEY` or `SERPER_API_KEY` environment variable (it wins over
+the file). For SerpApi only, you can also leave both empty and `run` asks for the key (hidden
+input, never saved). Never put a key in any other file.
 
 ### Step 4: Create your settings files
 
@@ -169,8 +185,13 @@ Open `sources/search.toml` and check these sections:
   `outside area`; those jobs are still shown.
 - **`[[platform]]`:** which hiring platforms to search. Each one adds a search per title
   group. The example has the five that found Israeli jobs in testing.
+- **`[google] source`:** the search service from step 3: `"serpapi"` (the example) or
+  `"serper"`.
 - **`[filters] title_exclude`:** titles to hide, such as "Sales" or "Hardware".
 - **`[filters] show_career_pages`:** whether to show company careers pages as well as jobs.
+- **`[filters] hide_older_than_days`:** hides jobs posted more than this many days ago,
+  because some companies leave postings online for years. The example has `30`; `0` hides
+  none. Jobs without a date and jobs you've marked always stay.
 - **`[budget]`:** the example fits the free plan, so leave it unless you have more searches.
   See [Search limits and getting more searches](#search-limits-and-getting-more-searches).
 
@@ -193,7 +214,8 @@ settings file stops the tool here with a message, before any search.
 
 ### Step 8: Run your first search
 
-**This spends up to 16 of your 250 monthly searches** (the `per_run` setting):
+**This spends up to 16 searches** (the `per_run` setting): 16 of SerpApi's 250 a month, or 16
+of your Serper credits.
 
 ```bash
 uv run job-search-robot run
@@ -209,14 +231,14 @@ and the tool drops those. The next run picks up the queries this one didn't reac
 ## Configuration reference
 
 Every setting the tool reads. Run `preview` after each edit. If you delete a setting, the tool
-uses the value below, except `freshness` (`week`), `show_career_pages` (`false`) and `title_exclude` (empty). Settings marked required, and each platform's `name` and `site`, can't be deleted.
+uses the value below, except `freshness` (`week`), `show_career_pages` (`false`), `title_exclude` (empty) and `hide_older_than_days` (`0`). Settings marked required, and each platform's `name` and `site`, can't be deleted.
 
 ### `local.env.yaml`
 
 | Setting | What it does |
 | --- | --- |
 | `SERPAPI_API_KEY` | Your SerpApi key. A real environment variable with the same name wins. |
-| `SERPER_API_KEY` | Optional. Needed for `--source serper`; `account` also shows its credits. |
+| `SERPER_API_KEY` | Optional. Needed to search with Serper (`source = "serper"` or `--source serper`); `account` also shows its credits. |
 | `TAVILY_API_KEY` | Optional. Not used for searching; `account` only shows its credits. |
 
 ### `sources/positions.toml`
@@ -248,6 +270,7 @@ uses the value below, except `freshness` (`week`), `show_career_pages` (`false`)
 | | `language` | `"en"` | Google language. |
 | | `freshness` | `"any"` | Date filter: `day`, `week`, `month` or `any`. Keep `any`: with a date filter, Google often ignored the platform. |
 | | `timeout_seconds` | `30` | How long to wait for SerpApi (1-120). |
+| | `source` | `"serpapi"` | Search service when a command has no `--source`: `"serpapi"` or `"serper"`. See [Serper as a backup](#serper-as-a-backup-optional). |
 | `[location]` | `query_terms` | `["Israel", "Tel Aviv"]` | A page must mention one of these. Required. |
 | `[[region]]` | `name` | `"Central"` | Shown in the Region column. |
 | | `enabled` | `true` | `false` labels its cities `outside area`, without hiding them. |
@@ -259,8 +282,9 @@ uses the value below, except `freshness` (`week`), `show_career_pages` (`false`)
 | | `title_exclude` | list | Hides leads whose title has one of these (whole words, any case). Free. |
 | | `show_career_pages` | `true` | Shows company careers pages, unless that company already has a job shown. |
 | | `old_posting_days` | `60` | The Posted cell turns orange after this many days. |
+| | `hide_older_than_days` | `30` | Hides jobs whose page date is more than this many days ago. `0` hides none. Jobs without a date and jobs you've marked stay shown. Comeet's date is the last update. |
 
-After editing `title_exclude`, `show_career_pages` or `old_posting_days`, run
+After editing `title_exclude`, `show_career_pages`, `old_posting_days` or `hide_older_than_days`, run
 `uv run job-search-robot refresh` to apply it to the existing leads. It's free.
 
 ## Routine (every ~2 days)
@@ -284,8 +308,9 @@ Then open `results/job_leads.xlsx` (Excel, LibreOffice or any spreadsheet app):
   The **Posted** cell turns orange when a job is older than 60 days.
 - **Region** comes from the page location, or else from the title and snippet.
 - **Page type** `career page` is a company's job list, not a single job.
-- "New" means new to this tool, not newly posted. The example settings use no date filter,
-  so the first runs also find older jobs.
+- "New" means new to this tool, not newly posted. The searches use no date filter, so they
+  also find older jobs; the example settings hide those posted more than 30 days ago
+  (`hide_older_than_days`).
 
 ### What the workbook hides
 
@@ -293,9 +318,12 @@ Hidden leads stay in the tool's memory, so they never come back as "new":
 
 - jobs whose page lists only locations outside Israel,
 - closed jobs,
+- jobs whose page date is more than `hide_older_than_days` days ago (30 in the example),
 - duplicates: the same title at the same company in another location, the same job
   posted at two levels (Staff / Principal) with the same location and date, and a
-  company's careers page when one of its jobs is already shown,
+  company's careers page when one of its jobs is already shown. Titles count as the same
+  when they differ only by "Easy apply -", the company's own name, "Sr" for "Senior",
+  or Google's "- this page" ending,
 - titles that contain a `title_exclude` phrase,
 - all careers pages, if you set `show_career_pages = false`.
 
@@ -320,7 +348,8 @@ Run them as `uv run job-search-robot <command>`. Useful options:
   your `positions.toml`, such as `management` (repeatable).
 - `--max-requests N` lowers this run's budget.
 - `--freshness day|week|month|any` overrides the date filter.
-- `--source serper` makes `preview`, `run` or `sweep` use Serper instead of SerpApi.
+- `--source serpapi|serper` picks the search service for one `preview`, `run` or `sweep`,
+  instead of the `[google] source` setting.
 
 `uv run job-search-robot <command> --help` lists them all.
 
@@ -387,11 +416,20 @@ per_run = 60             # 60 x 15 runs = 900 a month
 ### Serper as a backup (optional)
 
 SerpApi is the default. If it runs out or stops working, you can search through Serper, which
-also returns Google results. The tool never switches by itself; you choose it per command:
+also returns Google results. The tool never switches by itself. To use Serper for every command,
+set it in `sources/search.toml`:
+
+```toml
+[google]
+source = "serper"
+```
+
+Or choose it for one command; `--source` wins over the setting:
 
 ```bash
 uv run job-search-robot preview --source serper
 uv run job-search-robot run --source serper
+uv run job-search-robot run --source serpapi   # back to SerpApi for this run only
 ```
 
 - Add `SERPER_API_KEY` to `local.env.yaml`. Serper offers 2,500 free credits, and one search
@@ -435,8 +473,8 @@ All of these are private and git-ignored.
   working notes `docs/PROGRESS.md` and `docs/tasks/`.
 - The tool doesn't need or read your CV. If you use Claude in
   [step 1](#step-1-decide-which-roles-to-search), you share the CV with Anthropic yourself.
-- The tool sends only search queries and free account checks (to SerpApi, or to Serper with
-  `--source serper`), one request per Google redirect link of a platform result (to Google, to
+- The tool sends only search queries and free account checks (to SerpApi, or to Serper when you
+  choose it), one request per Google redirect link of a platform result (to Google, to
   learn the page address), and plain page requests to the public job pages it found (one per
   second per site, at most 80 per run; `refresh --recheck` opens every job page). If you set Tavily or Serper keys, `account` also asks
   those services for your credits.

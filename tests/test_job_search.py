@@ -13,7 +13,7 @@ from dataclasses import replace
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 from openpyxl import load_workbook
@@ -720,6 +720,37 @@ class HideRuleTests(unittest.TestCase):
         self.assertEqual([r["identity"] for r in shown], ["a", "b", "d", "e"])
         self.assertEqual(dict(hidden), {"duplicate": 1})
 
+    def test_title_variants_of_one_job_are_duplicates(self):
+        early = "2026-11-09T10:00:00+00:00"
+        rows = [
+            self.row("a", "ServiceNow Full Stack Team Lead (Armis/Veza)", "ServiceNow", status="not relevant"),
+            self.row("b", "Easy apply - Full Stack Team Lead (Veza/Armis)", "ServiceNow"),   # a again: hidden
+            self.row("c", "Sr Staff Software Engineer - ServiceNow", "ServiceNow", seen=early),
+            self.row("d", "Senior Staff Software Engineer", "ServiceNow"),                   # c again
+            self.row("e", "Software Architect, GPU Networking - this page", "nvidia", seen=early),
+            self.row("f", "Software Architect, GPU Networking", "nvidia"),                    # e again
+            self.row("g", "Kaltura, Inc. Team Leader", "KalturaInc", seen=early),
+            self.row("h", "Team Leader", "KalturaInc"),                                      # g again
+            self.row("i", "Software Architect, AI Networking", "nvidia"),                     # another job
+        ]
+        shown, hidden = app.split_visible(rows, self.settings)
+        self.assertEqual([r["identity"] for r in shown], ["a", "c", "e", "g", "i"])
+        self.assertEqual(dict(hidden), {"duplicate": 4})
+
+    def test_old_postings_are_hidden_only_when_set(self):
+        def posted(days):
+            return {"status": "open", "in_israel": 1, "location": "Tel Aviv",
+                    "posted": (date.today() - timedelta(days=days)).isoformat()}
+        rows = [self.row("recent", "Engineering Manager", check=posted(10)),
+                self.row("old", "Team Lead", check=posted(400)),
+                self.row("marked", "Software Architect", status="applied", check=posted(400)),   # marked: shown
+                self.row("undated", "Tech Lead", check={"status": "unknown", "in_israel": None, "posted": ""}),
+                self.row("unchecked", "Group Manager")]
+        self.assertEqual(len(app.split_visible(rows, self.settings)[0]), 5)                   # 0 = never hidden
+        shown, hidden = app.split_visible(rows, replace(self.settings, hide_older_than_days=30))
+        self.assertEqual([r["identity"] for r in shown], ["recent", "marked", "undated", "unchecked"])
+        self.assertEqual(dict(hidden), {"old posting": 1})
+
 
 class DedupeMemoryTests(unittest.TestCase):
     def setUp(self):
@@ -1013,6 +1044,21 @@ class LimitNoticeTests(unittest.TestCase):
             self.assertEqual((memory.searches_this_month(), memory.searches_this_month(provider="serper")), (0, 6))
         finally:
             memory.close()
+
+    def test_the_source_setting_picks_the_service_and_the_flag_wins(self):
+        self.use_limit(250)
+        self.search.write_text(self.search.read_text(encoding="utf-8").replace(
+            "[google]\n", '[google]\nsource = "serper"\n', 1), encoding="utf-8")
+        code, fake, out, _ = self.main("run", [page([])] * 6, left=2495, provider="serper", account_id="serper:fixture")
+        self.assertEqual((code, len(fake.calls)), (0, 6))
+        self.assertIn("Serper counted 6 of the 6 searches sent.", out)            # no --source needed
+        code, fake, out, _ = self.main("run", [page([])] * 6, extra=("--source", "serpapi"))
+        self.assertEqual((code, len(fake.calls)), (0, 6))
+        self.assertIn("SerpApi counted 6 of the 6 searches sent.", out)
+        self.search.write_text(self.search.read_text(encoding="utf-8").replace(
+            'source = "serper"', 'source = "bing"'), encoding="utf-8")
+        with self.assertRaises(app.ConfigError):
+            app.load_settings(POSITIONS, self.search)
 
     def test_serper_never_spends_past_its_credits_or_on_bought_credits(self):
         self.use_limit(250)

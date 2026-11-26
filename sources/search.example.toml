@@ -13,6 +13,7 @@ per_hour = 50            # SerpApi free plan throughput: 50 searches per hour
 allow_paid_plan = false  # false: run and sweep stop before searching on a priced SerpApi plan or bought Serper credits
 
 [google]
+source = "serpapi"       # search service when a command has no --source: "serpapi" or "serper" (README: "Serper as a backup")
 country = "il"
 language = "en"
 freshness = "any"        # "any" = no date filter (recommended); or "day", "week", "month".
@@ -149,3 +150,7 @@ show_career_pages = true
 
 # The Posted cell is shaded when the job was posted more than this many days ago (still shown).
 old_posting_days = 60
+
+# Jobs whose page date is more than this many days ago are hidden (0 = never). Free:
+# run `refresh` after a change. Jobs without a date and jobs you have marked stay shown.
+hide_older_than_days = 30

@@ -15,6 +15,7 @@ from .common import ROOT, ConfigError
 DEFAULT_POSITIONS = ROOT / "sources" / "positions.toml"
 DEFAULT_SEARCH = ROOT / "sources" / "search.toml"
 FRESHNESS = {"day": "qdr:d", "week": "qdr:w", "month": "qdr:m", "any": ""}
+SOURCES = ("serpapi", "serper")   # search services; `[google] source` picks the default
 
 
 @dataclass(frozen=True)
@@ -71,7 +72,9 @@ class Settings:
     timeout_seconds: int
     show_career_pages: bool = False   # company careers pages (boards) are hidden unless true
     old_posting_days: int = 60        # Posted cell shaded when the job is older than this
+    hide_older_than_days: int = 0     # jobs posted longer ago than this are hidden; 0 = never
     allow_paid_plan: bool = False     # False: no search is sent on a SerpApi plan with a price
+    source: str = "serpapi"           # search service when the command has no --source
 
     @property
     def tbs(self) -> str:
@@ -205,7 +208,13 @@ def load_settings(positions: Path = DEFAULT_POSITIONS, search: Path = DEFAULT_SE
         if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z-]{2,12}", value):
             raise ConfigError(f"google.{key} must be a language/country code.")
         codes[key] = value
+    source = google.get("source", "serpapi")
+    if source not in SOURCES:
+        raise ConfigError(f"google.source must be one of: {', '.join(SOURCES)}.")
     filters = _table(data, "filters", label)
+    hide_older = filters.get("hide_older_than_days", 0)
+    if isinstance(hide_older, bool) or not isinstance(hide_older, int) or not 0 <= hide_older <= 3650:
+        raise ConfigError("filters.hide_older_than_days must be an integer between 0 (never hide) and 3650.")
     show_boards = filters.get("show_career_pages", False)
     if not isinstance(show_boards, bool):
         raise ConfigError("filters.show_career_pages must be true or false.")
@@ -227,4 +236,4 @@ def load_settings(positions: Path = DEFAULT_POSITIONS, search: Path = DEFAULT_SE
         timeout_seconds=positive_int(google.get("timeout_seconds", 30), "google.timeout_seconds", 120),
         show_career_pages=show_boards,
         old_posting_days=positive_int(filters.get("old_posting_days", 60), "filters.old_posting_days", 3650),
-        allow_paid_plan=allow_paid)
+        hide_older_than_days=hide_older, allow_paid_plan=allow_paid, source=source)
